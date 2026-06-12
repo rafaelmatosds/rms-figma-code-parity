@@ -1,0 +1,22 @@
+{
+  "_note": "Copy this file to your project root as ds-config.json and fill in your values.",
+
+  "figmaFileKey": "YOUR_FILE_KEY",
+  "frames": [
+    { "name": "Plugin / Screen 1", "nodeId": "XXX-YYYYY" },
+    { "name": "Plugin / Screen 2", "nodeId": "XXX-YYYYY" }
+  ],
+
+  "paths": {
+    "themeCSS": "src/theme.css",
+    "snapshotVars": "src/figma-vars.snapshot.json",
+    "snapshotStructure": "src/figma-structure.snapshot.json",
+    "pluginCSS": [
+      "src/ui.src.html"
+    ],
+    "plugins": []
+  },
+
+  "knownUnusedVars": [],
+  "knownFontSizeExceptions": []
+}
