@@ -253,5 +253,5 @@ Project-specific data (`ds-config.json`, `parity-map.mjs`, `structure-contract.m
 4. All configured modes must match
 5. No hardcoded hex/px in CSS rules (declarations OK)
 6. New Figma tokens detected → implemented before audit closes
-7. Hidden Figma nodes (visible=false) → never implemented in code
+7. Hidden node WITH a boolean visibility variable → implement its tokens (the boolean can be toggled; tokens are real). Hidden node with NO boolean variable → flag, never implement
 8. DS sub-components nested inside parent components → always retain their own styles

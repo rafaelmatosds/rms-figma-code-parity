@@ -58,7 +58,7 @@ Use these throughout all Figma queries. Never hardcode collection or mode names.
 4. **All modes must match.** A token correct in dark but wrong in light is still a divergence.
 5. **Hardcoded values in CSS rules are always flagged.** Colors must use `var(--)`, font-sizes must use scale vars, border widths and radii must use your DS sizing tokens. Raw literal values in a CSS rule (not a `:root` declaration) are a divergence. Document intentional exceptions in `ds-config.json → knownHardcodedExceptions`.
 6. **New Figma component tokens detected during any audit step must be implemented in code before the audit closes.**
-7. **Hidden elements (visible=false) in Figma are flagged but never implemented in code.** A token bound only to a hidden layer is `⚠️ HIDDEN — not implemented`. Never add a CSS var for a token whose only binding is on a hidden node.
+7. **Hidden elements (visible=false) with a bound boolean variable → implement their tokens.** The boolean controls visibility and can be toggled on in other states or projects — the tokens are real. Add the boolean variable itself to CSS (e.g. a show/hide class or `display` binding). **Hidden elements with no boolean variable → flag but never implement.** A token whose only binding is on a statically hidden node (no `boundVariables.visible`) is not a code requirement.
 8. **Every DS sub-component nested inside another DS component must retain its own CSS styles.** A parent component's rule that combines a component class with a bare element tag (`.card svg { color: X }`) directly targets that element — direct targeting beats inheritance. When adding any CSS rule of the form `.<componentClass> <elementTag> { <visual-property> }`, either (a) prove it's a leaf component, or (b) add explicit `.<subComponent> <elementTag> { }` overrides later in the cascade. Add every such rule to the `ALLOWED` map in `subcomponent-isolation-check.mjs`. Gate [8] enforces this mechanically.
 
 ---
@@ -253,7 +253,7 @@ Print tokens changed/added/removed per section, which CSS vars need updating, co
 
 ## Phase 2 — Step 1b: Bound token walk → `bound-tokens.json`
 
-Walk all DS frames and capture every token bound to at least one **visible** node. Skip `visible=false` nodes (Hard Rule #7). Use frame IDs from `ds-config.json → frames`.
+Walk all DS frames and capture every token bound to a node (Hard Rule #7 split: boolean-hidden → implement; statically hidden → flag only). Use frame IDs from `ds-config.json → frames`.
 
 ```js
 const collections = await figma.variables.getLocalVariableCollectionsAsync();
@@ -269,25 +269,31 @@ const frameIds = ['YOUR_FRAME_NODE_ID_1', 'YOUR_FRAME_NODE_ID_2'];
 const used = {}, hidden = {};
 for (const fid of frameIds) {
   const frame = figma.currentPage.findOne(n => n.id === fid); if (!frame) continue;
-  function walk(node, ancestorHidden = false) {
-    const isHidden = ancestorHidden || node.visible === false;
+  function walk(node, ancestorStaticHidden = false) {
+    // Hard Rule #7: hidden WITH a boolean variable → implement (boolean can be toggled).
+    //               hidden WITHOUT a boolean variable → statically hidden → flag, don't implement.
+    const hasBoolVar       = !!node.boundVariables?.visible;
+    const selfStaticHidden = node.visible === false && !hasBoolVar;
+    const isStaticHidden   = ancestorStaticHidden || selfStaticHidden;
+
     if (node.boundVariables) {
       for (const [prop, binding] of Object.entries(node.boundVariables)) {
         for (const b of (Array.isArray(binding) ? binding : [binding])) {
           if (!b?.id) continue;
           const v = idToVar[b.id];
           if (!v || v.name.startsWith(PRIMITIVE_PREFIX)) continue;
-          const bucket = isHidden ? hidden : used;
+          const bucket = isStaticHidden ? hidden : used;
           if (!bucket[v.name]) bucket[v.name] = [];
-          bucket[v.name].push({ frame: fid, nodeId: node.id, nodeName: node.name, prop });
+          bucket[v.name].push({ frame: fid, nodeId: node.id, nodeName: node.name, prop, hasBoolVar });
         }
       }
     }
-    if ('children' in node) node.children.forEach(c => walk(c, isHidden));
+    if ('children' in node) node.children.forEach(c => walk(c, isStaticHidden));
   }
   walk(frame);
 }
-if (Object.keys(hidden).length) console.log('⚠️ HIDDEN tokens (Hard Rule #7):', Object.keys(hidden));
+if (Object.keys(hidden).length)
+  console.log('⚠️ STATICALLY HIDDEN — no boolean var, do not implement:', Object.keys(hidden));
 return used;
 ```
 
