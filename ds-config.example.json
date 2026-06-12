@@ -3,9 +3,17 @@
 
   "figmaFileKey": "YOUR_FILE_KEY",
   "frames": [
-    { "name": "Plugin / Screen 1", "nodeId": "XXX-YYYYY" },
-    { "name": "Plugin / Screen 2", "nodeId": "XXX-YYYYY" }
+    { "name": "Screen / Plugin 1", "nodeId": "XXX-YYYYY" },
+    { "name": "Screen / Plugin 2", "nodeId": "XXX-YYYYY" }
   ],
+
+  "figma": {
+    "colorCollection": "Color",
+    "sizingCollection": "Sizing",
+    "darkMode": "Dark",
+    "lightMode": "Light",
+    "primitivePrefix": "primitives/"
+  },
 
   "paths": {
     "themeCSS": "src/theme.css",
@@ -18,5 +26,5 @@
   },
 
   "knownUnusedVars": [],
-  "knownFontSizeExceptions": []
+  "knownHardcodedExceptions": []
 }

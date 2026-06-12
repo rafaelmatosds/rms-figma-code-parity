@@ -31,21 +31,24 @@ const SNAPSHOT_PATH = cfg.paths?.snapshotVars   ?? 'src/figma-vars.snapshot.json
 // ── Load parity-map.mjs (project-specific token mappings) ────────────────────
 let EXPLICIT = {}, NULL_TOKENS = new Set(), SKIP_TOKENS = new Set(),
     KNOWN_NULL = new Set(), EXPLICIT_SIZING = {}, SIZING_SKIP = new Map(), TYPO = {};
+// Primitive scale — export NEUTRAL_LIGHT / NEUTRAL_DARK from parity-map.mjs.
+// Each is { key: '#hex' } where key matches the capture group in NEUTRAL_VAR_RE.
+// Export NEUTRAL_VAR_RE (RegExp with one capture group) to override the var pattern.
+// Default: matches --neutral-100, --neutral-200, etc.
+let N_L = {}, N_D = {}, NEUTRAL_VAR_RE = /^--neutral-(\d+)$/;
 try {
   const map = await import(join(ROOT, 'parity-map.mjs'));
-  if (map.EXPLICIT)       EXPLICIT       = map.EXPLICIT;
-  if (map.NULL_TOKENS)    NULL_TOKENS    = map.NULL_TOKENS;
-  if (map.SKIP_TOKENS)    SKIP_TOKENS    = map.SKIP_TOKENS;
-  if (map.KNOWN_NULL)     KNOWN_NULL     = map.KNOWN_NULL;
+  if (map.EXPLICIT)        EXPLICIT        = map.EXPLICIT;
+  if (map.NULL_TOKENS)     NULL_TOKENS     = map.NULL_TOKENS;
+  if (map.SKIP_TOKENS)     SKIP_TOKENS     = map.SKIP_TOKENS;
+  if (map.KNOWN_NULL)      KNOWN_NULL      = map.KNOWN_NULL;
   if (map.EXPLICIT_SIZING) EXPLICIT_SIZING = map.EXPLICIT_SIZING;
-  if (map.SIZING_SKIP)    SIZING_SKIP    = map.SIZING_SKIP;
-  if (map.TYPO)           TYPO           = map.TYPO;
+  if (map.SIZING_SKIP)     SIZING_SKIP     = map.SIZING_SKIP;
+  if (map.TYPO)            TYPO            = map.TYPO;
+  if (map.NEUTRAL_LIGHT)   N_L             = map.NEUTRAL_LIGHT;
+  if (map.NEUTRAL_DARK)    N_D             = map.NEUTRAL_DARK;
+  if (map.NEUTRAL_VAR_RE)  NEUTRAL_VAR_RE  = map.NEUTRAL_VAR_RE;
 } catch { /* parity-map.mjs optional — runs with empty maps */ }
-
-// ── Primitive neutral scale (hardcoded — this IS the DS primitive spec) ───────
-// Override by exporting NEUTRAL_LIGHT / NEUTRAL_DARK from parity-map.mjs.
-const N_L = { 100:'#0a0a0a',200:'#2b2b2b',300:'#404040',400:'#595959',500:'#828282',600:'#9c9c9c',700:'#d6d6d6',800:'#ededed',900:'#f7f7f7',1000:'#ffffff' };
-const N_D = { 100:'#ededed',200:'#d4d4d4',300:'#b8b8b8',400:'#808080',500:'#5e5e5e',600:'#3b3b3b',700:'#303030',800:'#2c2c2c',900:'#212121',1000:'#121212' };
 
 // ── Parse theme.css ───────────────────────────────────────────────────────────
 const rawCss = readFileSync(join(ROOT, THEME_PATH), 'utf8');
@@ -66,8 +69,8 @@ const darkVars  = darkMatch ? parseVarBlock(darkMatch[1]) : {};
 // ── Color resolver (mode-aware) ───────────────────────────────────────────────
 function resolve(varName, mode, depth = 0) {
   if (depth > 8) return null;
-  const nm = varName.match(/^--neutral-(\d+)$/);
-  if (nm) return mode === 'light' ? N_L[+nm[1]] : N_D[+nm[1]];
+  const nm = varName.match(NEUTRAL_VAR_RE);
+  if (nm) return mode === 'light' ? (N_L[nm[1]] ?? N_L[+nm[1]]) : (N_D[nm[1]] ?? N_D[+nm[1]]);
   const raw = (mode === 'dark' && darkVars[varName]) ? darkVars[varName] : rootVars[varName];
   if (!raw) return null;
   const t = raw.trim();

@@ -3,9 +3,26 @@
 // Do not commit ds-config.json / parity-map.mjs as submodule files —
 // they live at the project root and are project-specific.
 
+// ─── Primitive scale (for resolving alias chains in color tokens) ──────────────
+// Map your DS's primitive tokens so the resolver can follow alias chains to hex.
+// Keys match the capture group in NEUTRAL_VAR_RE (default: --neutral-NNN).
+//
+// Example — numeric scale:
+//   export const NEUTRAL_LIGHT = { 100: '#0a0a0a', 200: '#2b2b2b', 900: '#f7f7f7' };
+//   export const NEUTRAL_DARK  = { 100: '#ededed', 200: '#d4d4d4', 900: '#212121' };
+//
+// Example — named scale with custom var pattern:
+//   export const NEUTRAL_LIGHT = { primary: '#000000', muted: '#595959' };
+//   export const NEUTRAL_DARK  = { primary: '#ffffff', muted: '#808080' };
+//   export const NEUTRAL_VAR_RE = /^--color-([a-z]+)$/;
+export const NEUTRAL_LIGHT = {};
+export const NEUTRAL_DARK  = {};
+// Uncomment and customize if your primitive vars don't follow --neutral-NNN:
+// export const NEUTRAL_VAR_RE = /^--neutral-(\d+)$/;
+
 // ─── COLOR: Token path → CSS var name (when the naming convention doesn't produce the right var) ──
-// Example: 'buttonPrimary/iconText': '--buttonPrimary-text'
-// Convention: token/path/default → --token-path  (drop /default, /color; /iconText → /text; / → -)
+// Convention: token/path/default → --token-path  (drop /default, /color; / → -)
+// Example: 'button/iconText': '--button-text'
 export const EXPLICIT = {
   // Add your token→var exceptions here
 };
