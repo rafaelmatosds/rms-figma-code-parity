@@ -1,13 +1,18 @@
 // structure-check.mjs — Run from project root: node scripts/structure-check.mjs
-// Diffs the live Figma structural snapshot against your component contracts.
-// Also verifies CSS height rules and base-rule var bindings.
+// Gate [3] — structural parity: snapshot vs contract, CSS height rules,
+//             base-rule var bindings, and state/variant selector + var bindings.
+//
+// Full verification chain for every Figma state:
+//   1. Selector exists in CSS
+//   2. Selector's rule uses the correct token var for each property
+//   3. (Gate [2]) That var resolves to the correct hex value
 //
 // Requires at project root:
-//   ds-config.json          — themeCSS + snapshotStructure paths
-//   structure-contract.mjs  — CONTRACT, CSS_HEIGHT_RULES, CSS_BASE_RULE_VARS
+//   ds-config.json          — themeCSS + snapshotStructure + pluginCSS paths
+//   structure-contract.mjs  — CONTRACT, CSS_HEIGHT_RULES, CSS_BASE_RULE_VARS,
+//                             STATE_SELECTORS
 //
-// Exit 0 = snapshot matches contract AND CSS rules correct.
-// Exit 1 = drift, missing snapshot, or CSS mismatch.
+// Exit 0 = all checks pass. Exit 1 = any failure.
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -22,6 +27,7 @@ try { cfg = JSON.parse(readFileSync(join(ROOT, 'ds-config.json'), 'utf8')); } ca
 
 const THEME_PATH    = cfg.paths?.themeCSS          ?? 'src/theme.css';
 const SNAPSHOT_PATH = cfg.paths?.snapshotStructure ?? 'src/figma-structure.snapshot.json';
+const PLUGIN_CSS    = cfg.paths?.pluginCSS          ?? [];
 
 // ── Load structure-contract.mjs ───────────────────────────────────────────────
 let CONTRACT = {}, CSS_HEIGHT_RULES = {}, CSS_BASE_RULE_VARS = [], STATE_SELECTORS = [];
@@ -43,12 +49,54 @@ try {
   process.exit(1);
 }
 
-if (!Object.keys(CONTRACT).length) {
-  console.log('\n⏭  structure-contract.mjs not found or CONTRACT is empty.');
+if (!Object.keys(CONTRACT).length && !STATE_SELECTORS.length) {
+  console.log('\n⏭  structure-contract.mjs not found or all exports empty.');
   console.log('   Copy structure-contract.example.mjs → structure-contract.mjs and fill in your components.\n');
   process.exit(0);
 }
 
+// ── Load CSS sources ──────────────────────────────────────────────────────────
+// themeCSS  — used for height rules and base-rule var checks (central declarations)
+// allCss    — theme + all plugin files, used for state selector checks
+//             (state rules often live in plugin/component files)
+let themeCSS = null;
+try { themeCSS = readFileSync(join(ROOT, THEME_PATH), 'utf8'); } catch {}
+
+const cssFiles = [THEME_PATH, ...PLUGIN_CSS].filter(f => existsSync(join(ROOT, f)));
+const allCss   = cssFiles.map(f => readFileSync(join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')).join('\n');
+
+// ── CSS utility helpers ───────────────────────────────────────────────────────
+// Both helpers take an explicit css string so they work on themeCSS or allCss.
+
+function findBlock(css, selector) {
+  const lines = css.split('\n');
+  const escaped = selector.split(/\s+/).map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+  const pat = new RegExp('^\\s*' + escaped + '(?![.\\w-])\\s*\\{');
+  const start = lines.findIndex(l => pat.test(l));
+  if (start < 0) return null;
+  if (/\}/.test(lines[start])) { const m = lines[start].match(/\{([^}]*)\}/); return m ? m[1] : ''; }
+  const block = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*\}/.test(lines[i])) break;
+    block.push(lines[i]);
+  }
+  return block.join('\n');
+}
+
+function extractPropVar(block, prop) {
+  const re = new RegExp('(?<![a-zA-Z-])' + prop + '\\s*:\\s*(var\\(--[\\w-]+\\)|[^;\\n]+)');
+  const m  = block?.match(re);
+  if (!m) return null;
+  const vm = m[1].trim().match(/^var\((--[\w-]+)/);
+  return vm ? vm[1] : null;
+}
+
+function selectorExists(css, selector) {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[,\\n])\\s*${esc}\\s*(?:,|\\{)`, 'm').test(css);
+}
+
+// ── 1. Snapshot vs CONTRACT ───────────────────────────────────────────────────
 const components = snap.components ?? {};
 const FAIL = [], PASS = [], MISSING = [];
 const SCALAR_FIELDS = ['h', 'gapVar', 'fontSizeVar', 'fontWeightVar', 'fillStructure', 'innerRadiusVar', 'strokeOnDefault'];
@@ -57,7 +105,8 @@ for (const [name, expect] of Object.entries(CONTRACT)) {
   const got = components[name];
   if (!got) { MISSING.push(name); continue; }
   for (const f of SCALAR_FIELDS) {
-    if (expect[f] !== got[f]) FAIL.push({ component: name, field: f, expected: expect[f], got: got[f] });
+    if (expect[f] !== got[f])
+      FAIL.push({ component: name, field: f, expected: expect[f], got: got[f] });
   }
   for (const side of ['tb', 'lr']) {
     const e = expect.paddingVar?.[side] ?? null, g = got.paddingVar?.[side] ?? null;
@@ -68,10 +117,8 @@ for (const [name, expect] of Object.entries(CONTRACT)) {
 
 const extra = Object.keys(components).filter(c => !CONTRACT[c]);
 
-// ── CSS height cross-check ─────────────────────────────────────────────────────
-const CSS_FAIL = [], CSS_PASS = [], VAR_FAIL = [], VAR_PASS = [];
-let themeCSS = null;
-try { themeCSS = readFileSync(join(ROOT, THEME_PATH), 'utf8'); } catch {}
+// ── 2. CSS height cross-check ─────────────────────────────────────────────────
+const CSS_FAIL = [], CSS_PASS = [];
 
 if (themeCSS) {
   const cssVars = {};
@@ -96,26 +143,6 @@ if (themeCSS) {
     const r = resolveVar(val.trim()), m = String(r).match(/^(\d+(?:\.\d+)?)px/);
     return m ? Math.round(parseFloat(m[1])) : null;
   }
-  function findBlock(css, selector) {
-    const lines = css.split('\n');
-    const pat = new RegExp('^\\s*' + selector.split(/\s+/).map(p => p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\s+') + '(?![.\\w-])\\s*\\{');
-    const start = lines.findIndex(l => pat.test(l));
-    if (start < 0) return null;
-    if (/\}/.test(lines[start])) { const m = lines[start].match(/\{([^}]*)\}/); return m ? m[1] : ''; }
-    const block = [];
-    for (let i = start + 1; i < lines.length; i++) {
-      if (/^\s*\}/.test(lines[i])) break;
-      block.push(lines[i]);
-    }
-    return block.join('\n');
-  }
-  function extractPropVar(block, prop) {
-    const re = new RegExp('(?<![a-zA-Z-])' + prop + '\\s*:\\s*(var\\(--[\\w-]+\\)|[^;\\n]+)');
-    const m = block.match(re);
-    if (!m) return null;
-    const vm = m[1].trim().match(/^var\((--[\w-]+)/);
-    return vm ? vm[1] : null;
-  }
 
   for (const [comp, rule] of Object.entries(CSS_HEIGHT_RULES)) {
     const contractH = CONTRACT[comp]?.h;
@@ -130,7 +157,12 @@ if (themeCSS) {
     else if (cssPx !== contractH) CSS_FAIL.push(`${comp}: CSS ${rule.prop} is ${cssPx}px — contract expects ${contractH}px`);
     else CSS_PASS.push(comp);
   }
+}
 
+// ── 3. CSS base-rule var bindings ─────────────────────────────────────────────
+const VAR_FAIL = [], VAR_PASS = [];
+
+if (themeCSS) {
   for (const rule of CSS_BASE_RULE_VARS) {
     const block = findBlock(themeCSS, rule.selector);
     if (!block) { VAR_FAIL.push(`${rule.key}: selector "${rule.selector}" not found`); continue; }
@@ -141,64 +173,91 @@ if (themeCSS) {
   }
 }
 
-// ── State/variant selector check ─────────────────────────────────────────────
-// Verify every Figma state/variant maps to an existing CSS selector.
-// Reads all CSS source files: theme CSS + plugin CSS from ds-config.json.
+// ── 4. State/variant selectors + var bindings ─────────────────────────────────
+// Full chain per state:
+//   (a) selector exists in CSS (theme or plugin files)
+//   (b) for each declared var: selector's rule uses the expected token var
+//
+// Token values are verified by Gate [2] — this gate verifies the wiring.
 const SELECTOR_FAIL = [], SELECTOR_PASS = [];
-if (STATE_SELECTORS.length) {
-  const cssFiles = [THEME_PATH, ...(cfg.paths?.pluginCSS ?? [])];
-  const allCss = cssFiles
-    .filter(f => existsSync(join(ROOT, f)))
-    .map(f => readFileSync(join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
-    .join('\n');
 
-  for (const entry of STATE_SELECTORS) {
-    // Match selector as a CSS rule opener: preceded by start/comma/newline,
-    // followed by optional whitespace then { or ,
-    const esc = entry.selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re  = new RegExp(`(?:^|[,\\n])\\s*${esc}\\s*(?:,|\\{)`, 'm');
-    if (re.test(allCss)) {
-      SELECTOR_PASS.push(`${entry.component}/${entry.figmaState}`);
-    } else {
-      SELECTOR_FAIL.push(entry);
+for (const entry of STATE_SELECTORS) {
+  const label = `${entry.component} [${entry.figmaState}] "${entry.selector}"`;
+
+  // (a) Selector existence
+  if (!selectorExists(allCss, entry.selector)) {
+    SELECTOR_FAIL.push({ label, issue: 'selector not found in any CSS file' });
+    continue;
+  }
+
+  // (b) Var bindings (if declared)
+  if (!entry.vars?.length) {
+    SELECTOR_PASS.push(label);
+    continue;
+  }
+
+  const block = findBlock(allCss, entry.selector);
+  if (!block) {
+    SELECTOR_FAIL.push({ label, issue: 'selector found but rule block could not be parsed' });
+    continue;
+  }
+
+  let allVarsPass = true;
+  for (const v of entry.vars) {
+    const usedVar = extractPropVar(block, v.prop);
+    if (!usedVar) {
+      SELECTOR_FAIL.push({ label, issue: `"${v.prop}" not set in rule`, expected: v.expectedVar });
+      allVarsPass = false;
+    } else if (usedVar !== v.expectedVar) {
+      SELECTOR_FAIL.push({ label, issue: `"${v.prop}" uses ${usedVar} — expected ${v.expectedVar}` });
+      allVarsPass = false;
     }
   }
+  if (allVarsPass) SELECTOR_PASS.push(label);
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────
-console.log(`\n✅ PASS  ${PASS.length}/${Object.keys(CONTRACT).length} components`);
+console.log(`\n✅ PASS  ${PASS.length}/${Object.keys(CONTRACT).length} components (structure)`);
 console.log(`❌ FAIL  ${FAIL.length} field(s)`);
 if (MISSING.length) console.log(`❓ MISSING from snapshot: ${MISSING.join(', ')}`);
 if (extra.length)   console.log(`🆕 In snapshot, not in contract: ${extra.join(', ')}`);
 
 if (FAIL.length) {
   console.log('\n─── Structural drift ──────────────────────────────────────────');
-  for (const f of FAIL) console.log(`  ❌ ${f.component}.${f.field}: contract=${JSON.stringify(f.expected)}  Figma=${JSON.stringify(f.got)}`);
+  for (const f of FAIL)
+    console.log(`  ❌ ${f.component}.${f.field}: contract=${JSON.stringify(f.expected)}  Figma=${JSON.stringify(f.got)}`);
 }
 
 if (themeCSS) {
   console.log(`\n✅ PASS  ${CSS_PASS.length}/${Object.keys(CSS_HEIGHT_RULES).length} CSS height rules`);
   console.log(`❌ FAIL  ${CSS_FAIL.length}`);
   if (CSS_FAIL.length) for (const f of CSS_FAIL) console.log(`  ❌ ${f}`);
+
   console.log(`\n✅ PASS  ${VAR_PASS.length}/${CSS_BASE_RULE_VARS.length} CSS base-rule var bindings`);
   console.log(`❌ FAIL  ${VAR_FAIL.length}`);
   if (VAR_FAIL.length) for (const f of VAR_FAIL) console.log(`  ❌ ${f}`);
 } else {
-  console.log('\n⚠️  theme CSS not found — CSS height and var-binding checks skipped');
+  console.log('\n⚠️  theme CSS not found — height and base-rule var checks skipped');
 }
 
 if (STATE_SELECTORS.length) {
+  const totalVarChecks = STATE_SELECTORS.reduce((n, e) => n + (e.vars?.length ?? 0), 0);
   console.log(`\n✅ PASS  ${SELECTOR_PASS.length}/${STATE_SELECTORS.length} state/variant selectors`);
+  if (totalVarChecks) console.log(`   (${totalVarChecks} var binding(s) verified across all states)`);
   console.log(`❌ FAIL  ${SELECTOR_FAIL.length}`);
   if (SELECTOR_FAIL.length) {
-    console.log('\n─── Missing state selectors ───────────────────────────────────');
-    for (const f of SELECTOR_FAIL)
-      console.log(`  ❌ ${f.component} [${f.figmaState}]: selector "${f.selector}" not found in CSS`);
+    console.log('\n─── State selector failures ───────────────────────────────────');
+    for (const f of SELECTOR_FAIL) {
+      console.log(`  ❌ ${f.label}`);
+      console.log(`       ${f.issue}${f.expected ? `  →  expected: ${f.expected}` : ''}`);
+    }
   }
-} else if (Object.keys(CONTRACT).length) {
-  console.log('\n⏭  STATE_SELECTORS empty in structure-contract.mjs — state selector check skipped');
+} else {
+  console.log('\n⏭  STATE_SELECTORS empty in structure-contract.mjs — state/variant check skipped');
 }
 
-const anyFail = FAIL.length > 0 || MISSING.length > 0 || CSS_FAIL.length > 0 || VAR_FAIL.length > 0 || SELECTOR_FAIL.length > 0;
-if (!anyFail) { console.log('\nAll component structures match the contract. ✓\n'); process.exit(0); }
+const anyFail = FAIL.length > 0 || MISSING.length > 0 || CSS_FAIL.length > 0
+             || VAR_FAIL.length > 0 || SELECTOR_FAIL.length > 0;
+
+if (!anyFail) { console.log('\nAll structural checks pass. ✓\n'); process.exit(0); }
 else { console.log(''); process.exit(1); }

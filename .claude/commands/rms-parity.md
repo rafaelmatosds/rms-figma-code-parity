@@ -364,7 +364,11 @@ function describe(n, depth=0) {
 
 Compare results against your `structure-contract.mjs`. Any drift → update contract AND CSS together.
 
-**State/variant selectors:** for every non-default Figma state or variant property value (Hover, Disabled, Selected, Size=Small, etc.), document the CSS selector that activates it in `structure-contract.mjs → STATE_SELECTORS`. `structure-check.mjs` verifies each selector exists in the CSS files. Token *values* per state are already covered by Gate [2] — this check only verifies the selector is present and reachable.
+**State/variant selectors — full chain:** for every non-default Figma state or variant property value (Hover, Disabled, Selected, Size=Small, etc.), document in `structure-contract.mjs → STATE_SELECTORS`:
+- `selector` — the CSS selector that activates this state
+- `vars` — for each visual property in this state, the exact token var that must be used
+
+`structure-check.mjs` verifies: (1) the selector exists in CSS, and (2) the selector's rule uses the declared token var for each property. Token values are Gate [2]'s job — this gate verifies the *wiring*. Together they form the complete chain: Figma state exists → selector exists → correct var is bound → var resolves to correct hex.
 
 ---
 
