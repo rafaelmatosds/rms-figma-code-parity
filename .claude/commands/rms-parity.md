@@ -2,6 +2,8 @@
 
 Full parity workflow in one command. Phase 1 (live Figma refresh) always runs before Phase 2 (code audit) — you can never accidentally audit against a stale snapshot.
 
+> **Phase 1 is never skipped.** Even if the snapshot is already dated today (from an earlier run in the same session), always re-query Figma live. A same-day snapshot does not mean this run's data is current — renames and additions since that earlier run would be invisible without a fresh query.
+
 ## Usage
 
 ```
@@ -21,10 +23,11 @@ node scripts/setup-webhook.mjs --list   # list registered Figma webhooks for thi
 
 At the start of every run, read `./ds-config.json` from the project root.
 
-**If it doesn't exist**, ask the user for exactly two things — nothing else:
+**If it doesn't exist**, ask the user for exactly three things — nothing else:
 
 1. **Figma file URL** — the full browser URL of the Figma file (e.g. `https://www.figma.com/design/abc123/My-DS`). Extract the file key from the URL: it's the path segment after `/design/` or `/file/`. Never ask for the raw key — accept the URL and parse it.
 2. **Theme CSS path** — the path to `theme.css` relative to the project root (e.g. `packages/ui/src/theme.css`). If you can find exactly one `theme.css` in the project by scanning common locations (`packages/`, `src/`, `app/`), show it as the default and let the user confirm with Enter.
+3. **DS frame node IDs** *(optional but recommended)* — the Figma node IDs of the top-level plugin/screen frames that are the live DS designs (e.g. `308-10425`). Find them from the frame's Figma URL (`node-id=308-10425`). Ask for each frame's name and ID. If the user skips this, set `frames: []` and warn after writing the config: **⚠️ Gates [4] and [9] will not run until frame IDs are added to `ds-config.json → frames`.**
 
 Then auto-detect and write `ds-config.json`:
 - `snapshotVars` / `snapshotStructure` → sibling files next to theme CSS
@@ -34,7 +37,7 @@ Then auto-detect and write `ds-config.json`:
 - `figma.sizingCollection` → `"Sizing"` (default)
 - `figma.primitivePrefix` → `"primitives/"` (default)
 - `figma.modes` → Light (`:root`) + Dark (`dark-media`) (default)
-- `frames` → `[]` (empty; user fills in frame IDs when they want Gate 9)
+- `frames` → from user input, or `[]` if skipped
 
 Write `ds-config.json` to the project root. Also append `ds-config.json`, `parity-map.mjs`, `structure-contract.mjs` to `.gitignore` if not already present. Then continue the audit immediately — do not stop.
 
@@ -162,8 +165,15 @@ if (SIZING_COLLECTION) {
     const modeId = sizingCol.modes[0].modeId;
     for (const id of sizingCol.variableIds) {
       const v = idToVar[id]; if (!v) continue;
-      const val = v.valuesByMode[modeId] ?? Object.values(v.valuesByMode)[0];
-      sizingOut[v.name] = typeof val === 'number' ? val + 'px' : String(val);
+      // Follow VARIABLE_ALIAS chains — sizing vars can alias each other (e.g. radii/button → radii/input).
+      // Without this, aliased vars return [object Object] and silently corrupt the snapshot.
+      let val = v.valuesByMode[modeId] ?? Object.values(v.valuesByMode)[0];
+      let depth = 0;
+      while (typeof val === 'object' && val?.type === 'VARIABLE_ALIAS' && depth++ < 10) {
+        const aliased = idToVar[val.id];
+        val = aliased?.valuesByMode[modeId] ?? Object.values(aliased?.valuesByMode ?? {})[0];
+      }
+      sizingOut[v.name] = typeof val === 'number' ? val + 'px' : String(val ?? '');
     }
   }
 }
@@ -224,7 +234,12 @@ Compare live vs snapshot across all sections: `color` (all modes), `sizing`, `ty
 
 **Changed tokens** → ⚠️ value changed
 **New tokens** → 🆕 needs CSS var (Hard Rule #1)
-**Removed tokens** → 🗑 check if CSS var can be removed
+**Removed tokens** → 🗑 check if CSS var can be removed:
+  - If the CSS var is **unused** (no CSS rule references it) → delete it
+  - If the CSS var is **used in a CSS rule** → do NOT just delete it. Replace the var with the nearest equivalent remaining token from the same component (e.g. if `--foo-text-hover` is used in a `:hover` rule, replace it with `--foo-text`). Then delete the declaration. Document the decision as a comment.
+  - Never leave a dangling `var(--deleted-name)` reference in a rule.
+
+**Rename pattern** (REMOVED + NEW pair with same value) → A token rename adds a `/default/` or other state segment (e.g. `foo/background/color` → `foo/background/default/color`). Check whether the new name maps to the same CSS var via convention — if dropping `/default` produces the same var name, no CSS var change is needed, only a snapshot and comment update. **Also check if sibling state tokens were added alongside the rename** (e.g. `foo/background/hover/color`) — those are genuine new tokens requiring their own CSS vars and rule wiring.
 
 If diff is empty: print `✅ No DS changes since last snapshot (YYYY-MM-DD).`
 
@@ -243,7 +258,7 @@ For every changed or new token:
 
 ## Phase 1 — Step 5: Update snapshots
 
-Write fresh live data to both files. Update `_updated` to today's date. Only overwrite `typography` if the text-style capture returned real values.
+Write fresh live data to both files. **Always stamp `_updated` to today's date on both snapshots**, even when no changes were detected — this is what tells Gate [1] the data is fresh. Only overwrite the `typography` section if the text-style capture returned real values (empty capture = keep existing).
 
 ---
 
@@ -316,6 +331,16 @@ return used;
 
 **Save output to `bound-tokens.json` at project root.**
 
+> **Output truncation fallback:** the Figma MCP tool may truncate large responses. If the walk output is cut off mid-JSON, run a compact second pass that returns only the keys — `bound-check.mjs` accepts either shape:
+> ```js
+> // Compact pass — run if full walk was truncated
+> // (reuse the same idToVar / walk logic above)
+> const compact = {};
+> for (const [k, arr] of Object.entries(used)) compact[k] = arr.length;
+> return { used: compact, hiddenTokens: Object.keys(hidden) };
+> ```
+> Write the compact object as `bound-tokens.json` — `bound-check.mjs` uses `Object.keys()` so counts work fine.
+
 ---
 
 ## Phase 2 — Step 2: Run all 9 audit gates
@@ -341,6 +366,18 @@ All 9 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 **Gate [2] fix mode:** if Gate [2] fails on sizing/typography values only, run `node scripts/parity-check.mjs --fix` to auto-apply the correct values to `theme.css`, then re-run the audit.
 
 **History:** every run appends to `parity-history.json`. View trend: `node scripts/audit.mjs --trend`.
+
+---
+
+## Phase 2 — Steps 3–9: When are manual steps required?
+
+| Condition | Steps 3–9 |
+|---|---|
+| All 9 gates pass AND Phase 1 found no new tokens | **Spot-check** — sample 1–2 components per run; full walk not required |
+| Any gate ❌ OR Phase 1 found new/changed tokens | **Mandatory** — run the full sequence before declaring parity |
+| New component added to DS | **Mandatory** — Step 3 deep-walk for that component at minimum |
+
+Gate failures take priority. Fix every ❌ before running the manual steps.
 
 ---
 
@@ -507,3 +544,24 @@ Configure `webhook.port` and `webhook.secret` in `ds-config.json`.
 - When renaming: update declarations, all usages, then rebuild.
 - When adding a token group: add CSS var + rule consumer + update `parity-map.mjs` + rebuild.
 - When removing from DS: remove CSS var, remove from `parity-map.mjs`, run unused-var check.
+
+---
+
+## End-of-Run Confidence Summary
+
+After every run, report this table so the practitioner knows exactly what the audit guarantees:
+
+| Area | Method | Confidence |
+|---|---|---|
+| Token values match Figma | Automated (Gate [2] — resolver against live snapshot) | High |
+| All Figma tokens have a CSS var | Automated (Gate [4] — bound-check against frame walk) | High if frames configured; **not run** if `frames: []` |
+| No unused CSS vars | Automated (Gate [5]) | High |
+| No hardcoded values in rules | Automated (Gate [6]) | High |
+| Structural parity (height, padding, gap) | Automated (Gate [3]) | High |
+| Sub-component isolation | Automated (Gate [8]) | High |
+| Build freshness | Automated (Gate [7]) | High |
+| Removed tokens reconciled | Manual (Phase 1 diff) | Medium — verify any "used in a rule" replacements visually |
+| Component states fully wired | Manual (Step 3 deep-walk) | Low if skipped; High if run |
+| Visual regression | Automated (Gate [9], requires FIGMA_TOKEN) or Manual (Step 7 screenshots) | **Not run** if neither is configured |
+
+Flag any row marked **not run** or **skipped** explicitly in the summary — do not imply full coverage.
