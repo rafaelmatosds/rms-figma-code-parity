@@ -19,9 +19,26 @@ node scripts/setup-webhook.mjs --list   # list registered Figma webhooks for thi
 
 ## Project Config
 
-At the start of every run, read `./ds-config.json` from the project root. If it doesn't exist, stop and tell the user to copy `ds-config.example.json` → `ds-config.json` and fill in their values.
+At the start of every run, read `./ds-config.json` from the project root.
 
-Extract:
+**If it doesn't exist**, ask the user for exactly two things — nothing else:
+
+1. **Figma file URL** — the full browser URL of the Figma file (e.g. `https://www.figma.com/design/abc123/My-DS`). Extract the file key from the URL: it's the path segment after `/design/` or `/file/`. Never ask for the raw key — accept the URL and parse it.
+2. **Theme CSS path** — the path to `theme.css` relative to the project root (e.g. `packages/ui/src/theme.css`). If you can find exactly one `theme.css` in the project by scanning common locations (`packages/`, `src/`, `app/`), show it as the default and let the user confirm with Enter.
+
+Then auto-detect and write `ds-config.json`:
+- `snapshotVars` / `snapshotStructure` → sibling files next to theme CSS
+- `pluginCSS` → scan `apps/*/ui.src.html` and `src/ui.src.html`
+- `plugins` → derived from pluginCSS paths
+- `figma.colorCollection` → `"Color"` (default, user can edit later)
+- `figma.sizingCollection` → `"Sizing"` (default)
+- `figma.primitivePrefix` → `"primitives/"` (default)
+- `figma.modes` → Light (`:root`) + Dark (`dark-media`) (default)
+- `frames` → `[]` (empty; user fills in frame IDs when they want Gate 9)
+
+Write `ds-config.json` to the project root. Also append `ds-config.json`, `parity-map.mjs`, `structure-contract.mjs` to `.gitignore` if not already present. Then continue the audit immediately — do not stop.
+
+Once `ds-config.json` exists, extract:
 - `figmaFileKey` — Figma file key
 - `frames` — array of `{ name, nodeId }` — the DS frame(s) to audit
 - `figma.colorCollection` — name of the color variable collection (e.g. `"Color"`)
