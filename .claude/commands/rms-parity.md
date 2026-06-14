@@ -150,14 +150,23 @@ const MODES = [/* from ds-config.json figma.modes */];
 
 const col = collections.find(c => c.name === COLOR_COLLECTION);
 const colorOut = {};
+const aliasesOut = {};  // one-level alias per token per mode (primitive name, or other semantic)
 for (const m of MODES) {
   const modeId = col.modes.find(fm => fm.name === m.name)?.modeId;
   if (!modeId) continue;
-  colorOut[m.snapshotKey] = {};
+  colorOut[m.snapshotKey]  = {};
+  aliasesOut[m.snapshotKey] = {};
   for (const id of col.variableIds) {
     const v = idToVar[id];
     if (!v || v.resolvedType !== 'COLOR' || v.name.startsWith(PRIMITIVE_PREFIX)) continue;
     colorOut[m.snapshotKey][v.name] = resolveInMode(id, modeId).hex;
+    // Capture direct alias (one hop) — reveals which primitive each semantic token chains through.
+    // parity-check.mjs uses this to catch cases where hex matches but the alias chain diverged.
+    const rawVal = v.valuesByMode[modeId] ?? Object.values(v.valuesByMode)[0];
+    if (typeof rawVal === 'object' && rawVal?.type === 'VARIABLE_ALIAS') {
+      const aliasedName = idToVar[rawVal.id]?.name;
+      if (aliasedName) aliasesOut[m.snapshotKey][v.name] = aliasedName;
+    }
   }
 }
 
@@ -192,7 +201,7 @@ for (const st of styles) {
   if (st.lineHeight?.unit === 'PIXELS') entry.lh = Math.round(st.lineHeight.value * 10) / 10 + 'px';
   typo[key] = entry;
 }
-return { color: colorOut, sizing: sizingOut, typography: typo };
+return { color: colorOut, aliases: aliasesOut, sizing: sizingOut, typography: typo };
 ```
 
 > Fill in the config constants from `ds-config.json`. The snapshot `color` object now has one key per mode (`snapshotKey`), e.g. `{ light: {...}, dark: {...}, "high-contrast": {...} }`.
@@ -270,7 +279,9 @@ For every changed or new token:
 
 ## Phase 1 — Step 5: Update snapshots
 
-Write fresh live data to both files. **Always stamp `_updated` to today's date on both snapshots**, even when no changes were detected — this is what tells Gate [1] the data is fresh. Only overwrite the `typography` section if the text-style capture returned real values (empty capture = keep existing).
+Write fresh live data to both files. **Always stamp `_updated` to today's date on both snapshots**, even when no changes were detected — this is what tells Gate [1] the data is fresh. Only overwrite the `typography` section if the text-style capture returned real values (empty capture = keep existing). Always write the `aliases` section from the Phase 1 query — it is used by `parity-check.mjs` to verify CSS var chains route through the correct primitive.
+
+**KNOWN_INDIRECT_ALIAS:** when `parity-check.mjs` reports `🔗 ALIAS FAIL`, check if the CSS intentionally routes through a semantic intermediate var (e.g. `--border`, `--bg`, `--text-muted`) rather than the primitive directly. If intentional, add an entry to `KNOWN_INDIRECT_ALIAS` in `parity-check.mjs` with the token name and the expected intermediate var. If not intentional, fix the CSS to route through the correct primitive.
 
 ---
 
@@ -284,6 +295,8 @@ node scripts/structure-check.mjs
 If either reports FAIL, reconcile CSS before Phase 2.
 
 **NEW SKIP = missing CSS var.** A NEW SKIP in Gate [2] means a token is in the snapshot but has no CSS var and no explicit exemption. Treat it exactly like a NEW token from Phase 1 — implement the CSS var before proceeding. Do not accept a passing Gate [2] that has non-zero NEW SKIPs for non-exempt tokens.
+
+**ALIAS FAIL = wrong primitive chain.** A `🔗 ALIAS FAIL` means hex matches but the CSS var routes through a different primitive than Figma. Either fix the CSS chain or add an entry to `KNOWN_INDIRECT_ALIAS` in `parity-check.mjs` if the semantic intermediate is intentional. Treat non-zero ALIAS FAILs the same as FAIL — do not close the audit.
 
 ---
 
