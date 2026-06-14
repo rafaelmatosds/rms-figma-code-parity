@@ -2,7 +2,7 @@
 
 Full parity workflow in one command. Phase 1 (live Figma refresh) always runs before Phase 2 (code audit) — you can never accidentally audit against a stale snapshot.
 
-> **Phase 1 is never skipped.** Even if the snapshot is already dated today (from an earlier run in the same session), always re-query Figma live. A same-day snapshot does not mean this run's data is current — renames and additions since that earlier run would be invisible without a fresh query.
+> **Phase 1 is never skipped** — unless you ran `/rms-parity` earlier in this same conversation and the snapshot was updated then. A same-day snapshot from a *prior session or context window* is not safe — renames and additions since that run would be invisible without a fresh query. If you are resuming after a context summary, compaction, or a new conversation, always re-query.
 
 ## Usage
 
