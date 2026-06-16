@@ -61,6 +61,13 @@ if (figmaCfg.modes && Array.isArray(figmaCfg.modes) && figmaCfg.modes.length) {
 
 // ── Load parity-map.mjs (project-specific token mappings) ────────────────────
 const PRIMITIVE_PREFIX = cfg.figma?.primitivePrefix ?? 'primitives/';
+// Segments to strip from token paths when deriving CSS var names.
+// Default: drop trailing /color and /default (common DS conventions).
+// Set to [] in ds-config.json → figma.namingConvention.dropSegments to keep all segments.
+const DROP_SEGMENTS   = cfg.figma?.namingConvention?.dropSegments   ?? ['color', 'default'];
+// When true (default), /iconText/ in token path is normalized to /text/ for CSS var derivation.
+// Set to false in ds-config.json → figma.namingConvention.iconTextAlias when CSS keeps "iconText".
+const ICON_TEXT_ALIAS = cfg.figma?.namingConvention?.iconTextAlias  ?? true;
 
 let EXPLICIT = {}, NULL_TOKENS = new Set(), SKIP_TOKENS = new Set(),
     KNOWN_NULL = new Set(), EXPLICIT_SIZING = {}, SIZING_SKIP = new Map(), TYPO = {};
@@ -230,7 +237,8 @@ function sizingFixHint(cssVar, figmaVal) {
 function tokenToVar(token) {
   if (SKIP_TOKENS.has(token) || NULL_TOKENS.has(token)) return null;
   if (Object.prototype.hasOwnProperty.call(EXPLICIT, token)) return EXPLICIT[token];
-  const v = token.replace(/\/iconText\//g, '/text/').replace(/\/default$/, '');
+  let v = ICON_TEXT_ALIAS ? token.replace(/\/iconText\//g, '/text/') : token;
+  if (DROP_SEGMENTS.includes('default')) v = v.replace(/\/default$/, '');
   return '--' + v.replace(/\//g, '-');
 }
 
@@ -252,7 +260,7 @@ const seen = new Set();
 for (let modeIdx = 0; modeIdx < MODES.length; modeIdx++) {
   const modeMeta = MODES[modeIdx];
   for (const [tokenKey, figmaHex] of Object.entries(snap.color?.[modeMeta.snapshotKey] ?? {})) {
-    const token     = tokenKey.replace(/\/color$/, '');
+    const token     = DROP_SEGMENTS.includes('color') ? tokenKey.replace(/\/color$/, '') : tokenKey;
     const dedupeKey = `${token}:${modeMeta.snapshotKey}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
