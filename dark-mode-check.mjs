@@ -27,7 +27,8 @@ try { cfg = JSON.parse(readFileSync(join(ROOT, 'ds-config.json'), 'utf8')); } ca
   console.error('❌ ds-config.json not found.'); process.exit(1);
 }
 const SNAP_VARS  = cfg.paths?.snapshotVars ?? 'figma-vars.snapshot.json';
-const THEME_PATH = cfg.paths?.themeCSS     ?? 'src/theme.css';
+const THEME_PATHS = [cfg.paths?.themeCSS ?? 'src/theme.css'].flat();
+const THEME_PATH  = THEME_PATHS[0];
 
 // ── Load parity-map.mjs ───────────────────────────────────────────────────────
 let EXPLICIT = {}, SKIP_TOKENS = new Set();
@@ -41,10 +42,10 @@ try {
   if (map.NEUTRAL_VAR_RE)  NEUTRAL_VAR_RE  = map.NEUTRAL_VAR_RE;
 } catch { /* optional */ }
 
-// ── Parse theme.css ───────────────────────────────────────────────────────────
-const rawCss = existsSync(join(ROOT, THEME_PATH))
-  ? readFileSync(join(ROOT, THEME_PATH), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
-  : '';
+// ── Parse token CSS (all configured files merged) ─────────────────────────────
+const rawCss = THEME_PATHS.filter(p => existsSync(join(ROOT, p)))
+  .map(p => readFileSync(join(ROOT, p), 'utf8')).join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 function parseVarBlock(block) {
   const vars = {};
   for (const m of block.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*):\s*([^;]+);/g))

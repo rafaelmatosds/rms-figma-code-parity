@@ -29,7 +29,8 @@ try { cfg = JSON.parse(readFileSync(join(ROOT, 'ds-config.json'), 'utf8')); } ca
   console.error('❌ ds-config.json not found.'); process.exit(1);
 }
 const SNAP_VARS  = cfg.paths?.snapshotVars ?? 'figma-vars.snapshot.json';
-const THEME_PATH = cfg.paths?.themeCSS     ?? 'src/theme.css';
+const THEME_PATHS = [cfg.paths?.themeCSS ?? 'src/theme.css'].flat();
+const THEME_PATH  = THEME_PATHS[0];
 const PLUGIN_CSS = cfg.paths?.pluginCSS    ?? [];
 const PRIM_PFX   = cfg.figma?.primitivePrefix ?? 'primitives/';
 
@@ -69,9 +70,9 @@ const stateTokens = existsSync(join(ROOT, 'component-state-tokens.json'))
   : null;
 const runtimeTokens = new Set([...(boundTokens ?? []), ...(stateTokens ?? [])]);
 
-// ── Collect declared CSS vars ─────────────────────────────────────────────────
+// ── Collect declared CSS vars (all token files merged) ───────────────────────
 const declared = new Set();
-const sources = [THEME_PATH, ...PLUGIN_CSS].filter(f => existsSync(join(ROOT, f)));
+const sources = [...THEME_PATHS, ...PLUGIN_CSS].filter(f => existsSync(join(ROOT, f)));
 for (const f of sources) {
   const txt = readFileSync(join(ROOT, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const m of txt.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*)\s*:/g)) declared.add('--' + m[1]);
@@ -84,9 +85,9 @@ const NL = map_?.NEUTRAL_LIGHT ?? {};
 const ND = map_?.NEUTRAL_DARK  ?? {};
 const NEUTRAL_VAR_RE = map_?.NEUTRAL_VAR_RE ?? /^--neutral-(\d+)$/;
 
-const rawCss = existsSync(join(ROOT, THEME_PATH))
-  ? readFileSync(join(ROOT, THEME_PATH), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
-  : '';
+const rawCss = THEME_PATHS.filter(p => existsSync(join(ROOT, p)))
+  .map(p => readFileSync(join(ROOT, p), 'utf8')).join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 function parseVarBlock(block) {
   const vars = {};
   for (const m of block.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*):\s*([^;]+);/g))

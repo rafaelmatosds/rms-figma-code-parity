@@ -24,7 +24,8 @@ try { cfg = JSON.parse(readFileSync(join(ROOT, 'ds-config.json'), 'utf8')); } ca
   console.error('❌ ds-config.json not found.'); process.exit(1);
 }
 const SNAP_VARS  = cfg.paths?.snapshotVars ?? 'figma-vars.snapshot.json';
-const THEME_PATH = cfg.paths?.themeCSS     ?? 'src/theme.css';
+const THEME_PATHS = [cfg.paths?.themeCSS ?? 'src/theme.css'].flat();
+const THEME_PATH  = THEME_PATHS[0];
 const PLUGIN_CSS = cfg.paths?.pluginCSS    ?? [];
 
 // ── Load parity-map.mjs ───────────────────────────────────────────────────────
@@ -66,8 +67,10 @@ for (const token of figmaTokens) {
   knownCSSVars.add(conventionVar(token.replace(/\/color$/, '')));
 }
 
-// ── Collect declared CSS vars from theme + plugins ────────────────────────────
-const rawCss = readFileSync(join(ROOT, THEME_PATH), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+// ── Collect declared CSS vars from all token files ────────────────────────────
+const rawCss = THEME_PATHS.filter(p => existsSync(join(ROOT, p)))
+  .map(p => readFileSync(join(ROOT, p), 'utf8')).join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 const declared = new Set();
 for (const m of rawCss.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*)\s*:/g)) declared.add('--' + m[1]);
 

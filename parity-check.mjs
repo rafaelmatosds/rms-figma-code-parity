@@ -31,7 +31,9 @@ try { cfg = JSON.parse(readFileSync(join(ROOT, 'ds-config.json'), 'utf8')); } ca
   console.error('❌ ds-config.json not found at project root.'); process.exit(1);
 }
 
-const THEME_PATH    = cfg.paths?.themeCSS     ?? 'src/theme.css';
+const THEME_PATHS   = [cfg.paths?.themeCSS ?? 'src/theme.css'].flat();
+const THEME_PATH    = THEME_PATHS[0]; // primary — used in fix hints
+const THEME_LABEL   = THEME_PATHS.length === 1 ? THEME_PATHS[0] : `[${THEME_PATHS.map(p=>p.split('/').pop()).join(', ')}]`;
 const SNAPSHOT_PATH = cfg.paths?.snapshotVars ?? 'src/figma-vars.snapshot.json';
 
 // ── Mode configuration ────────────────────────────────────────────────────────
@@ -99,8 +101,9 @@ try {
   }
 } catch { /* parity-map.mjs optional — runs with empty maps */ }
 
-// ── Parse theme.css ───────────────────────────────────────────────────────────
-const rawCss = readFileSync(join(ROOT, THEME_PATH), 'utf8');
+// ── Parse token CSS (all configured files merged) ─────────────────────────────
+const rawCss = THEME_PATHS.filter(p => existsSync(join(ROOT, p)))
+  .map(p => readFileSync(join(ROOT, p), 'utf8')).join('\n');
 const css = rawCss.replace(/\/\*[\s\S]*?\*\//g, '');
 
 function parseVarBlock(block) {
@@ -280,7 +283,7 @@ for (let modeIdx = 0; modeIdx < MODES.length; modeIdx++) {
     const inBase     = !!modeVars[0][cssVar];
     const inOverride = modeIdx > 0 && !!modeVars[modeIdx]?.[cssVar];
     if (!inBase && !inOverride) {
-      FAIL.push({ dimension: 'color', token, cssVar, mode: modeMeta.name, issue: 'CSS var not declared in theme CSS', fixHint: `Add ${cssVar} to ${THEME_PATH}` });
+      FAIL.push({ dimension: 'color', token, cssVar, mode: modeMeta.name, issue: `CSS var not declared in token CSS`, fixHint: `Add ${cssVar} to ${THEME_LABEL}` });
       continue;
     }
     const cssHex = resolve(cssVar, modeIdx);

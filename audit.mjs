@@ -77,33 +77,55 @@ async function bootstrapConfig() {
   console.log('\n' + C.bold('rms-parity — first-time setup'));
   console.log(C.dim('─'.repeat(WIDTH)));
 
-  // Auto-detect theme CSS — scan common locations 2 levels deep
+  // Auto-detect token CSS — scan common locations 2 levels deep for any .css file
+  // containing :root { and -- (CSS custom properties). Accepts any filename.
   const candidates = [];
-  const scanRoots = ['packages', 'src', 'app', 'styles', 'assets'];
+  const CSS_EXTS = ['.css', '.scss', '.sass', '.less'];
+  function looksLikeTokenFile(absPath) {
+    try {
+      const t = readFileSync(absPath, 'utf8');
+      return t.includes(':root') && t.includes('--');
+    } catch { return false; }
+  }
+  const scanRoots = ['packages', 'src', 'app', 'styles', 'assets', 'tokens'];
   for (const base of scanRoots) {
     const baseDir = join(ROOT, base);
     if (!existsSync(baseDir)) continue;
-    // Direct: packages/theme.css or src/theme.css
-    if (existsSync(join(baseDir, 'theme.css'))) candidates.push(join(base, 'theme.css'));
-    // One level deeper: packages/ui/src/theme.css
     try {
+      for (const f of readdirSync(baseDir)) {
+        const dot = f.lastIndexOf('.');
+        if (dot !== -1 && CSS_EXTS.includes(f.slice(dot))) {
+          const rel = join(base, f);
+          if (looksLikeTokenFile(join(ROOT, rel))) candidates.push(rel);
+        }
+      }
       for (const sub of readdirSync(baseDir)) {
         const subDir = join(baseDir, sub);
-        if (!existsSync(join(subDir, 'theme.css'))) {
-          // Two levels: packages/ui/src/theme.css
-          const srcDir = join(subDir, 'src');
-          if (existsSync(join(srcDir, 'theme.css'))) candidates.push(join(base, sub, 'src', 'theme.css'));
-        } else {
-          candidates.push(join(base, sub, 'theme.css'));
+        if (!statSync(subDir).isDirectory()) continue;
+        for (const entry of ['styles', 'src', '']) {
+          const dir = entry ? join(subDir, entry) : subDir;
+          if (!existsSync(dir)) continue;
+          try {
+            for (const f of readdirSync(dir)) {
+              const dot = f.lastIndexOf('.');
+              if (dot !== -1 && CSS_EXTS.includes(f.slice(dot))) {
+                const rel = join(base, sub, entry, f).replace(/[\\/]+/g, '/').replace(/\/$/, '');
+                if (looksLikeTokenFile(join(ROOT, rel))) candidates.push(rel);
+              }
+            }
+          } catch {}
         }
       }
     } catch {}
   }
-  if (existsSync(join(ROOT, 'theme.css'))) candidates.push('theme.css');
-
-  const detectedCSS = candidates.length === 1 ? candidates[0] : null;
-  if (detectedCSS) console.log(C.dim(`  Found theme CSS: ${detectedCSS}`));
-  else if (candidates.length > 1) console.log(C.dim(`  Found multiple theme.css files: ${candidates.join(', ')}`));
+  for (const f of readdirSync(ROOT)) {
+    const dot = f.lastIndexOf('.');
+    if (dot !== -1 && CSS_EXTS.includes(f.slice(dot)) && looksLikeTokenFile(join(ROOT, f)))
+      candidates.push(f);
+  }
+  const unique = [...new Set(candidates)];
+  const detectedCSS = unique.length === 1 ? unique[0] : null;
+  if (unique.length) console.log(C.dim(`  Found token CSS file(s): ${unique.join(', ')}`));
 
   // Auto-detect plugin CSS
   const pluginCSS = [];
@@ -132,20 +154,26 @@ async function bootstrapConfig() {
 
   const figmaKey = (await ask('Figma file key (leave blank to skip Gate 9): ')).trim();
 
+  // Accept comma-separated paths for multi-file token stores
   let themeCSS;
-  if (detectedCSS) {
-    const ans = (await ask(`Theme CSS [${detectedCSS}]: `)).trim();
-    themeCSS = ans || detectedCSS;
+  const defaultHint = detectedCSS ?? (unique.length > 1 ? unique.join(', ') : null);
+  if (defaultHint) {
+    const ans = (await ask(`Token CSS file(s) — comma-separated if multiple [${defaultHint}]: `)).trim();
+    const raw = ans || defaultHint;
+    const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+    themeCSS = parts.length === 1 ? parts[0] : parts;
   } else {
-    const ans = (await ask('Theme CSS path (e.g. packages/ui/src/theme.css): ')).trim();
-    themeCSS = ans || 'src/theme.css';
+    const ans = (await ask('Token CSS file(s) — comma-separated if multiple (e.g. src/tokens/base.css, src/tokens/components.css): ')).trim();
+    const parts = ans.split(',').map(s => s.trim()).filter(Boolean);
+    themeCSS = parts.length === 1 ? (parts[0] || 'src/theme.css') : parts;
   }
 
   rl.close();
   console.log('');
 
-  // Derive snapshot paths from theme CSS location
-  const cssDir           = dirname(themeCSS);
+  // Derive snapshot paths from first token CSS file location
+  const firstTheme       = [themeCSS].flat()[0];
+  const cssDir           = dirname(firstTheme);
   const snapshotVars     = join(cssDir, 'figma-vars.snapshot.json').replace(/\\/g, '/');
   const snapshotStructure = join(cssDir, 'figma-structure.snapshot.json').replace(/\\/g, '/');
 
@@ -205,7 +233,14 @@ async function bootstrapConfig() {
     cfg = await bootstrapConfig();
   }
 
-  const THEME       = cfg.paths?.themeCSS          ?? 'src/theme.css';
+  // THEMES: always an array — supports single string or array of paths
+  const THEMES      = [cfg.paths?.themeCSS ?? 'src/theme.css'].flat();
+  const THEME       = THEMES[0]; // primary path (for snapshot derivation, Gate 7)
+  const THEME_LABEL = THEMES.length === 1 ? THEMES[0] : `[${THEMES.map(p => p.split('/').pop()).join(', ')}]`;
+  function readThemeCSS() {
+    return THEMES.filter(p => existsSync(join(ROOT, p)))
+      .map(p => readFileSync(join(ROOT, p), 'utf8')).join('\n');
+  }
   const SNAP_VARS   = cfg.paths?.snapshotVars       ?? 'src/figma-vars.snapshot.json';
   const SNAP_STRUCT = cfg.paths?.snapshotStructure  ?? 'src/figma-structure.snapshot.json';
   const PLUGIN_CSS  = cfg.paths?.pluginCSS          ?? [];
@@ -404,10 +439,11 @@ async function bootstrapConfig() {
   }
 
   function computeGate5() {
-    if (!existsSync(join(ROOT, THEME))) {
-      return { pass: false, lines: [C.red(`theme CSS not found at ${THEME}`)] };
+    const existing = THEMES.filter(p => existsSync(join(ROOT, p)));
+    if (!existing.length) {
+      return { pass: false, lines: [C.red(`token CSS not found at ${THEME_LABEL}`)] };
     }
-    const themeText = readFileSync(join(ROOT, THEME), 'utf8');
+    const themeText = readThemeCSS();
     const declared  = [...new Set(
       [...themeText.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*)\s*:/g)].map(m => '--' + m[1])
     )];
@@ -426,6 +462,7 @@ async function bootstrapConfig() {
   }
 
   function computeGate6() {
+    // Scan all source files — not just token CSS — so Vue/JSX inline styles are caught too
     const scanTargets = allSourceFiles();
     const scanArgs    = ['-n', '-E'];
 
@@ -474,8 +511,10 @@ async function bootstrapConfig() {
       return { pass: true, lines: ['⏭ No plugins configured in ds-config.json — skipped'] };
     }
     const stale      = [];
-    const themePath  = join(ROOT, THEME);
-    const themeMtime = existsSync(themePath) ? statSync(themePath).mtime : null;
+    // Use the most recently modified token file as the freshness reference
+    const themeMtime = THEMES.filter(p => existsSync(join(ROOT, p)))
+      .map(p => statSync(join(ROOT, p)).mtime)
+      .sort((a, b) => b - a)[0] ?? null;
     for (const p of PLUGINS) {
       const src = join(ROOT, `apps/${p}/ui.src.html`);
       const out = join(ROOT, `apps/${p}/ui.html`);
