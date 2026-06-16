@@ -118,12 +118,13 @@ Both are machine-generated — never hand-edit. `bound-tokens.json` (project roo
 
 ## Phase 1 — Step 1: Query live Figma values
 
-Use collection/mode names from `ds-config.json`. Build the color output for **every configured mode** (not just light/dark):
+> **⚠️ Figma MCP 20 kb limit:** the `use_figma` tool silently truncates responses above ~20 kb. A single query for a large collection (>200 tokens) will be cut off mid-JSON with no error. **Always run the probe first to check the count, then decide whether to batch.**
+
+### Step 1a — Probe (always run first)
+
+Fill in `COLOR_COLLECTION`, `SIZING_COLLECTION` (or `null`), and `PRIMITIVE_PREFIX` from `ds-config.json`.
 
 ```js
-function toHex(c) {
-  return '#' + [c.r,c.g,c.b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
-}
 const collections = await figma.variables.getLocalVariableCollectionsAsync();
 const idToVar = {};
 for (const col of collections) {
@@ -131,88 +132,147 @@ for (const col of collections) {
     const v = await figma.variables.getVariableByIdAsync(id); if (v) idToVar[id] = v;
   }
 }
-function resolveInMode(varId, modeId, depth=0) {
-  if (depth > 10) return { hex: null };
-  const v = idToVar[varId]; if (!v) return { hex: null };
-  const val = v.valuesByMode[modeId] ?? Object.values(v.valuesByMode)[0];
-  if (!val) return { hex: null };
-  if (typeof val === 'object' && val.type === 'VARIABLE_ALIAS') return resolveInMode(val.id, modeId, depth + 1);
-  if (typeof val === 'object' && 'r' in val) return { hex: toHex(val) };
-  return { hex: String(val) };
-}
-
-// Read from ds-config.json:
-const COLOR_COLLECTION  = 'YOUR_COLOR_COLLECTION';   // figma.colorCollection
-const SIZING_COLLECTION = 'YOUR_SIZING_COLLECTION';  // figma.sizingCollection (or null)
-const PRIMITIVE_PREFIX  = 'YOUR_PRIMITIVE_PREFIX';   // figma.primitivePrefix
-// figma.modes = [{ name, snapshotKey, cssSelector }]
-// Build mode lookup: snapshotKey → Figma modeId
-const MODES = [/* from ds-config.json figma.modes */];
-
-// Capture full alias chain: token → [hop1, hop2, ..., "primitives/X"]
-// parity-check.mjs uses this to verify the CSS var() chain routes through
-// the SAME primitives in the SAME order as Figma (Gate [2] ALIAS FAIL check).
-function getAliasChain(varId, modeId, depth=0) {
-  if (depth > 10) return [];
-  const v = idToVar[varId]; if (!v) return [];
-  const val = v.valuesByMode[modeId] ?? Object.values(v.valuesByMode)[0];
-  if (!val || typeof val !== 'object' || val.type !== 'VARIABLE_ALIAS') return [];
-  const aliasedVar = idToVar[val.id]; if (!aliasedVar) return [];
-  return [aliasedVar.name, ...getAliasChain(val.id, modeId, depth + 1)];
-}
-
+const COLOR_COLLECTION  = 'Theme';       // figma.colorCollection from ds-config.json
+const SIZING_COLLECTION = 'Sizing';      // figma.sizingCollection (or null)
+const PRIMITIVE_PREFIX  = 'primitives/'; // figma.primitivePrefix
 const col = collections.find(c => c.name === COLOR_COLLECTION);
-const colorOut = {};
-const aliasesOut = {};  // full alias chain per token per mode — arrays like ["semantic/negative", "primitives/red"]
-for (const m of MODES) {
-  const modeId = col.modes.find(fm => fm.name === m.name)?.modeId;
-  if (!modeId) continue;
-  colorOut[m.snapshotKey]  = {};
-  aliasesOut[m.snapshotKey] = {};
-  for (const id of col.variableIds) {
-    const v = idToVar[id];
-    if (!v || v.resolvedType !== 'COLOR' || v.name.startsWith(PRIMITIVE_PREFIX)) continue;
-    colorOut[m.snapshotKey][v.name] = resolveInMode(id, modeId).hex;
-    const chain = getAliasChain(id, modeId);
-    if (chain.length > 0) aliasesOut[m.snapshotKey][v.name] = chain;
-  }
-}
-
-const sizingOut = {};
-if (SIZING_COLLECTION) {
-  const sizingCol = collections.find(c => c.name === SIZING_COLLECTION);
-  if (sizingCol) {
-    const modeId = sizingCol.modes[0].modeId;
-    for (const id of sizingCol.variableIds) {
-      const v = idToVar[id]; if (!v) continue;
-      // Follow VARIABLE_ALIAS chains — sizing vars can alias each other (e.g. radii/button → radii/input).
-      // Without this, aliased vars return [object Object] and silently corrupt the snapshot.
-      let val = v.valuesByMode[modeId] ?? Object.values(v.valuesByMode)[0];
-      let depth = 0;
-      while (typeof val === 'object' && val?.type === 'VARIABLE_ALIAS' && depth++ < 10) {
-        const aliased = idToVar[val.id];
-        val = aliased?.valuesByMode[modeId] ?? Object.values(aliased?.valuesByMode ?? {})[0];
-      }
-      sizingOut[v.name] = typeof val === 'number' ? val + 'px' : String(val ?? '');
-    }
-  }
-}
-
-// Typography — capture ALL local text styles, keyed by last path segment
-const WEIGHT = {'Thin':100,'Extra Light':200,'Light':300,'Regular':400,'Medium':500,'Semi Bold':600,'Bold':700,'Extra Bold':800,'Black':900};
-const styles = await figma.getLocalTextStylesAsync();
-const typo = {};
-for (const st of styles) {
-  const key = st.name.trim().toLowerCase().split('/').pop();
-  const entry = { size: Math.round(st.fontSize * 10) / 10 + 'px' };
-  const w = WEIGHT[st.fontName.style]; if (w) entry.weight = String(w);
-  if (st.lineHeight?.unit === 'PIXELS') entry.lh = Math.round(st.lineHeight.value * 10) / 10 + 'px';
-  typo[key] = entry;
-}
-return { color: colorOut, aliases: aliasesOut, sizing: sizingOut, typography: typo };
+const colorVarIds = col.variableIds.filter(id => {
+  const v = idToVar[id];
+  return v && v.resolvedType === 'COLOR' && !v.name.startsWith(PRIMITIVE_PREFIX);
+});
+const sizingCol = SIZING_COLLECTION ? collections.find(c => c.name === SIZING_COLLECTION) : null;
+return {
+  colorCount: colorVarIds.length,
+  sizingCount: sizingCol?.variableIds.length ?? 0,
+  modes: col.modes.map(m => m.name),
+};
 ```
 
-> Fill in the config constants from `ds-config.json`. The snapshot `color` object now has one key per mode (`snapshotKey`), e.g. `{ light: {...}, dark: {...}, "high-contrast": {...} }`.
+**Decision after probe:**
+- `colorCount ≤ 190` → run the single-pass query (Step 1b-single).
+- `colorCount > 190` → run batched queries (Step 1b-batched): `Math.ceil(colorCount / 190)` calls, each using `slice(i*190, (i+1)*190)`.
+
+---
+
+### Step 1b-single — Full query (≤190 tokens)
+
+Use this when `colorCount ≤ 190`. Returns everything in one call.
+
+```js
+function toHex(c){return '#'+[c.r,c.g,c.b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');}
+const collections=await figma.variables.getLocalVariableCollectionsAsync();
+const idToVar={};
+for(const col of collections){for(const id of col.variableIds){const v=await figma.variables.getVariableByIdAsync(id);if(v)idToVar[id]=v;}}
+function resolve(varId,modeId,d=0){if(d>10)return null;const v=idToVar[varId];if(!v)return null;const val=v.valuesByMode[modeId]??Object.values(v.valuesByMode)[0];if(!val)return null;if(val?.type==='VARIABLE_ALIAS')return resolve(val.id,modeId,d+1);if('r'in val)return toHex(val);return null;}
+function aliasChain(varId,modeId,d=0){if(d>10)return[];const v=idToVar[varId];if(!v)return[];const val=v.valuesByMode[modeId]??Object.values(v.valuesByMode)[0];if(!val||typeof val!=='object'||val.type!=='VARIABLE_ALIAS')return[];const a=idToVar[val.id];if(!a)return[];return[a.name,...aliasChain(val.id,modeId,d+1)];}
+// Fill from ds-config.json:
+const COLOR_COLLECTION='Theme'; const SIZING_COLLECTION='Sizing'; const PRIMITIVE_PREFIX='primitives/';
+const MODES=[{name:'Light',snapshotKey:'light'},{name:'Dark',snapshotKey:'dark'}]; // from figma.modes
+const col=collections.find(c=>c.name===COLOR_COLLECTION);
+const colorOut={},aliasesOut={};
+for(const m of MODES){
+  const modeId=col.modes.find(fm=>fm.name===m.name)?.modeId; if(!modeId)continue;
+  colorOut[m.snapshotKey]={}; aliasesOut[m.snapshotKey]={};
+  for(const id of col.variableIds){
+    const v=idToVar[id]; if(!v||v.resolvedType!=='COLOR'||v.name.startsWith(PRIMITIVE_PREFIX))continue;
+    colorOut[m.snapshotKey][v.name]=resolve(id,modeId);
+    const chain=aliasChain(id,modeId); if(chain.length>0)aliasesOut[m.snapshotKey][v.name]=chain;
+  }
+}
+const sizingOut={};
+if(SIZING_COLLECTION){const sc=collections.find(c=>c.name===SIZING_COLLECTION);if(sc){const mid=sc.modes[0].modeId;for(const id of sc.variableIds){const v=idToVar[id];if(!v)continue;let val=v.valuesByMode[mid]??Object.values(v.valuesByMode)[0];let d=0;while(typeof val==='object'&&val?.type==='VARIABLE_ALIAS'&&d++<10){const a=idToVar[val.id];val=a?.valuesByMode[mid]??Object.values(a?.valuesByMode??{})[0];}sizingOut[v.name]=typeof val==='number'?val+'px':String(val??'');}}}
+const WEIGHT={'Thin':100,'Extra Light':200,'Light':300,'Regular':400,'Medium':500,'Semi Bold':600,'Bold':700,'Extra Bold':800,'Black':900};
+const styles=await figma.getLocalTextStylesAsync(); const typo={};
+for(const st of styles){const key=st.name.trim().toLowerCase().split('/').pop();const entry={size:Math.round(st.fontSize*10)/10+'px'};const w=WEIGHT[st.fontName.style];if(w)entry.weight=String(w);if(st.lineHeight?.unit==='PIXELS')entry.lh=Math.round(st.lineHeight.value*10)/10+'px';typo[key]=entry;}
+return {color:colorOut,aliases:aliasesOut,sizing:sizingOut,typography:typo};
+```
+
+---
+
+### Step 1b-batched — Batch queries (>190 tokens)
+
+When `colorCount > 190`, run **one query per batch of 190 tokens**. Each call returns `{tokenName: [lightHex, darkHex]}`. After all batches complete, merge all results into `light{}` and `dark{}` objects.
+
+Run `Math.ceil(colorCount / 190)` calls, substituting `BATCH_START` and `BATCH_END` each time:
+
+```js
+// Batch query — substitute BATCH_START and BATCH_END each iteration
+// Example: batch 0 → (0, 190), batch 1 → (190, 380), etc.
+function toHex(c){return '#'+[c.r,c.g,c.b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');}
+const collections=await figma.variables.getLocalVariableCollectionsAsync();
+const idToVar={};
+for(const col of collections){for(const id of col.variableIds){const v=await figma.variables.getVariableByIdAsync(id);if(v)idToVar[id]=v;}}
+function resolve(varId,modeId,d=0){if(d>10)return null;const v=idToVar[varId];if(!v)return null;const val=v.valuesByMode[modeId]??Object.values(v.valuesByMode)[0];if(!val)return null;if(val?.type==='VARIABLE_ALIAS')return resolve(val.id,modeId,d+1);if('r'in val)return toHex(val);return null;}
+// Fill from ds-config.json:
+const COLOR_COLLECTION='Theme'; const PRIMITIVE_PREFIX='primitives/';
+const MODES=[{name:'Light',snapshotKey:'light'},{name:'Dark',snapshotKey:'dark'}];
+const col=collections.find(c=>c.name===COLOR_COLLECTION);
+const modeIds=Object.fromEntries(MODES.map(m=>[m.snapshotKey, col.modes.find(fm=>fm.name===m.name)?.modeId]));
+const vars=col.variableIds.map(id=>idToVar[id]).filter(v=>v&&v.resolvedType==='COLOR'&&!v.name.startsWith(PRIMITIVE_PREFIX));
+const BATCH_START=0, BATCH_END=190; // ← substitute per iteration
+const out={};
+for(const v of vars.slice(BATCH_START,BATCH_END)){
+  out[v.name]=MODES.map(m=>resolve(v.id,modeIds[m.snapshotKey]));
+}
+return out; // {tokenName: [lightHex, darkHex, ...]} — one value per mode in MODES order
+```
+
+**After all batch calls:** merge into per-mode objects:
+```
+light = {}; dark = {};
+for each batch result:
+  for each [tokenName, [lightHex, darkHex]] in result:
+    light[tokenName] = lightHex
+    dark[tokenName]  = darkHex
+```
+
+Then fetch **aliases in batches** (same BATCH_SIZE, same iteration count):
+
+```js
+// Alias batch — substitute BATCH_START / BATCH_END per iteration
+function aliasChain(varId,modeId,d=0){if(d>10)return[];const v=idToVar[varId];if(!v)return[];const val=v.valuesByMode[modeId]??Object.values(v.valuesByMode)[0];if(!val||typeof val!=='object'||val.type!=='VARIABLE_ALIAS')return[];const a=idToVar[val.id];if(!a)return[];return[a.name,...aliasChain(val.id,modeId,d+1)];}
+// Reuse collections / idToVar / col / vars / modeIds / MODES from above
+const BATCH_START=0, BATCH_END=190;
+const out={};
+for(const m of MODES){out[m.snapshotKey]={};}
+for(const v of vars.slice(BATCH_START,BATCH_END)){
+  for(const m of MODES){
+    const chain=aliasChain(v.id,modeIds[m.snapshotKey]);
+    if(chain.length>0)out[m.snapshotKey][v.name]=chain;
+  }
+}
+return out;
+```
+
+Merge alias batches the same way — accumulate into a single `aliases` object keyed by snapshotKey.
+
+Then fetch **sizing and typography** in one separate call (these collections are small enough to avoid truncation):
+
+```js
+// Sizing + typography — single call, always safe
+const collections=await figma.variables.getLocalVariableCollectionsAsync();
+const idToVar={};
+for(const col of collections){for(const id of col.variableIds){const v=await figma.variables.getVariableByIdAsync(id);if(v)idToVar[id]=v;}}
+const SIZING_COLLECTION='Sizing'; // or null — fill from ds-config.json
+const sizingOut={};
+if(SIZING_COLLECTION){const sc=collections.find(c=>c.name===SIZING_COLLECTION);if(sc){const mid=sc.modes[0].modeId;for(const id of sc.variableIds){const v=idToVar[id];if(!v)continue;let val=v.valuesByMode[mid]??Object.values(v.valuesByMode)[0];let d=0;while(typeof val==='object'&&val?.type==='VARIABLE_ALIAS'&&d++<10){const a=idToVar[val.id];val=a?.valuesByMode[mid]??Object.values(a?.valuesByMode??{})[0];}sizingOut[v.name]=typeof val==='number'?val+'px':String(val??'');}}}
+const WEIGHT={'Thin':100,'Extra Light':200,'Light':300,'Regular':400,'Medium':500,'Semi Bold':600,'Bold':700,'Extra Bold':800,'Black':900};
+const styles=await figma.getLocalTextStylesAsync(); const typo={};
+for(const st of styles){const key=st.name.trim().toLowerCase().split('/').pop();const entry={size:Math.round(st.fontSize*10)/10+'px'};const w=WEIGHT[st.fontName.style];if(w)entry.weight=String(w);if(st.lineHeight?.unit==='PIXELS')entry.lh=Math.round(st.lineHeight.value*10)/10+'px';typo[key]=entry;}
+return {sizing:sizingOut,typography:typo};
+```
+
+**Final assembly** (after all calls complete):
+```js
+{
+  color: { light, dark, /* other modes */ },
+  aliases: aliasesOut,
+  sizing: sizingOut,
+  typography: typo
+}
+```
+
+> The snapshot `color` object has one key per mode (`snapshotKey`), e.g. `{ light: {...}, dark: {...}, "high-contrast": {...} }`.
 
 ---
 
