@@ -549,6 +549,7 @@ All 13 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | [11] | `exemption-check.mjs` | Exemption validity — `EXPLICIT` / `SKIP_TOKENS` / `COVERED` entries still present in snapshot (stale entries = ❌) |
 | [12] | `dark-mode-check.mjs` | Dark mode completeness — all mode-variant tokens have a CSS override for non-default modes |
 | [13] | `naming-check.mjs` | CSS naming round-trip — every `theme.css` var traces back to a Figma token (or is declared in `SYSTEM_VARS`) |
+| [14] | `pseudo-element-check.mjs` | Pseudo-element audit — every `::before`/`::after` with visual content declared in structure contract |
 
 **Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 

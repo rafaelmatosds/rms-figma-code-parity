@@ -30,6 +30,7 @@ Invoke `/rms-parity` in any project to run a full parity check: Phase 1 refreshe
 | [11] | `exemption-check.mjs` | Exemption validity — `EXPLICIT`/`SKIP_TOKENS`/`COVERED` entries not stale in snapshot |
 | [12] | `dark-mode-check.mjs` | Dark mode completeness — all mode-variant tokens adapt between modes in CSS |
 | [13] | `naming-check.mjs` | CSS naming round-trip — every `theme.css` var traces back to a Figma token or `SYSTEM_VARS` |
+| [14] | `pseudo-element-check.mjs` | Pseudo-element audit — every `::before`/`::after` with visual content declared in structure contract |
 
 **Everything is read-only.** No source file is ever modified automatically. The only exception is `node scripts/parity-check.mjs --fix`, which must be invoked explicitly and only rewrites sizing/typography literal values.
 
