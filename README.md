@@ -15,22 +15,22 @@ Invoke `/rms-parity` in any project to run a full parity check: Phase 1 refreshe
 
 **14 automated gates:**
 
-| Gate | Script | Catches |
+| Gate | Script | What it checks |
 |---|---|---|
-| [1]  | inline | Snapshot freshness — stale snapshot warns (always ✅ after Phase 1) |
-| [2]  | `parity-check.mjs` | Token value parity — color (all modes) + sizing + typography + alias chain. NEW SKIP = missing CSS var. `⏳ PENDING FIGMA SYNC` when consumer file lags behind DS source. |
-| [3]  | `structure-check.mjs` | Structural parity — height, padding/gap/font/radius per-rule var bindings, fill structure, stroke presence, property assertions |
-| [4]  | `bound-check.mjs` | Bound-token coverage — token bound in Figma frame but no CSS var in code |
-| [5]  | inline | Unused CSS vars — declared-but-orphaned vars (Hard Rule #2) |
-| [6]  | inline | Hardcoded values — raw hex or font-size px in CSS rules (Hard Rule #5) |
-| [7]  | inline | Build freshness — source newer than built output (skips if no plugins configured) |
-| [8]  | `subcomponent-isolation-check.mjs` | Sub-component isolation — parent rule overrides nested DS sub-component styles (Hard Rule #8) |
-| [9]  | `visual-regression-check.mjs` | Visual regression — Figma frame screenshots vs stored references (skips if `FIGMA_TOKEN` not set) |
-| [10] | `state-check.mjs` | State completeness — all COMPONENT_SET state tokens covered (skips if no state data) |
-| [11] | `exemption-check.mjs` | Exemption validity — `EXPLICIT`/`SKIP_TOKENS`/`COVERED` entries not stale in snapshot |
-| [12] | `dark-mode-check.mjs` | Dark mode completeness — all mode-variant tokens adapt between modes in CSS |
-| [13] | `naming-check.mjs` | CSS naming round-trip — every `theme.css` var traces back to a Figma token or `SYSTEM_VARS` |
-| [14] | `pseudo-element-check.mjs` | Pseudo-element audit — every `::before`/`::after` with visual content declared in structure contract |
+| [1]  | inline | **Is the data fresh?** Confirms the Figma snapshot was pulled today — so you're never auditing against yesterday's design. |
+| [2]  | `parity-check.mjs` | **Do the colors, sizes, and fonts match Figma?** Compares every design token value (light mode, dark mode, all modes) against what's in the code. Flags mismatches, missing variables, and wrong alias chains. If the Figma file is a consumer of a library that hasn't been updated yet, marks those as ⏳ instead of ❌. |
+| [3]  | `structure-check.mjs` | **Does the component look the way Figma says it should?** Checks that each component's height, spacing, font, and radius are all wired to the right design tokens — not hardcoded, not missing. |
+| [4]  | `bound-check.mjs` | **Is anything in the design that isn't in the code?** Walks every Figma frame and finds tokens that are actively used in the design but have no matching CSS variable in the codebase. |
+| [5]  | inline | **Are there CSS variables nobody's using?** Finds variables that are declared but never actually applied anywhere — dead weight that should be cleaned up. |
+| [6]  | inline | **Are there raw values that should be tokens?** Catches any hardcoded color, size, spacing, or radius written directly into a CSS rule instead of using a design token variable. |
+| [7]  | inline | **Is the built output up to date?** Makes sure the compiled files aren't older than the source — catches cases where you edited the source but forgot to rebuild. |
+| [8]  | `subcomponent-isolation-check.mjs` | **Is a parent component accidentally overriding a child component's styles?** When one DS component lives inside another, their styles must not bleed into each other. This catches parent rules that silently clobber a child's design tokens. |
+| [9]  | `visual-regression-check.mjs` | **Does it still look the same?** Takes a screenshot of the live Figma frame and compares it against the last accepted reference image. Flags any visual drift. Skips if no Figma token is configured. |
+| [10] | `state-check.mjs` | **Are all component states covered?** Makes sure every interactive state defined in Figma (hover, pressed, disabled, selected…) has a corresponding token in the code. |
+| [11] | `exemption-check.mjs` | **Are the documented exceptions still valid?** Any tokens manually marked as "skip this" are cross-checked against the current snapshot — if the token no longer exists or has changed, the exemption is flagged as stale. |
+| [12] | `dark-mode-check.mjs` | **Does dark mode actually adapt?** Verifies that every token that's supposed to change between light and dark mode actually does — nothing is accidentally stuck on the same value in both. |
+| [13] | `naming-check.mjs` | **Do all CSS variable names trace back to a real Figma token?** Makes sure nobody invented a CSS variable that has no counterpart in the design system. |
+| [14] | `pseudo-element-check.mjs` | **Are decorative `::before` / `::after` elements documented?** Any visual element added via CSS pseudo-elements must be declared in the component's structure contract so it doesn't silently drift from the design. |
 
 **Everything is read-only.** No source file is ever modified automatically. The only exception is `node scripts/parity-check.mjs --fix`, which must be invoked explicitly and only rewrites sizing/typography literal values.
 
