@@ -601,7 +601,7 @@ All 14 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 |---|---|---|
 | [1]  | inline | **Snapshot freshness** — Is the data fresh? Always ✅ after Phase 1 runs. |
 | [2]  | `parity-check.mjs` | **Token value parity** — Do the colors, sizes, and fonts match Figma? Every token across every mode. NEW SKIP = token in Figma but no CSS var yet — treat as ❌. `⏳ PENDING FIGMA SYNC` when the consumer file hasn't pulled the latest library update (not a code bug). |
-| [3]  | `structure-check.mjs` | **Structural parity** — Does the component look the way Figma says it should? Height, spacing, font, and radius must all point to the right design tokens — no hardcodes, no gaps. |
+| [3]  | `structure-check.mjs` | **Structural parity** — Does the component look the way Figma says it should? Height, spacing, font, and radius must all point to the right design tokens — no hardcodes, no gaps. Also enforces `childFramePadding` HTML structure: for every entry in the structure contract's `childFramePadding[]`, grep every file in `paths.pluginCSS` for the component class and verify that any button/element containing visible text has the required child element (e.g. `<span>`) so the CSS padding rule can apply. A button with bare text instead of a wrapped child is flagged as ❌ structural mismatch — fix by wrapping the text in the required element, then rebuild and re-audit. |
 | [4]  | `bound-check.mjs` | **Bound-token coverage** — Is anything in the design that isn't in the code? Walks the Figma frames and finds tokens actively used in the design that have no CSS variable yet. |
 | [5]  | inline | **Unused CSS vars** — Are there CSS variables nobody's using? Declared-but-orphaned variables that can be safely deleted. Scans the whole repo (`.vue`, `.jsx`, `.tsx`, `.html`, `.css`, `.scss`, `.js`, `.ts`). |
 | [6]  | inline | **Hardcoded values** — Are there raw values that should be tokens? Every CSS rule is scanned — colors, padding, margin, width, height, border-radius, gap, font-size, line-height, and more. Any literal value written directly into a rule instead of `var(--)` is flagged. Intentional layout math (`100%`, `50%`) goes in `ds-config.json → knownHardcodedExceptions`. |
@@ -617,6 +617,29 @@ All 14 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 **Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 
 **History:** every run appends to `parity-history.json`. View trend: `node scripts/audit.mjs --trend`.
+
+---
+
+## Gate [3] — childFramePadding HTML structure check
+
+When `structure-contract.mjs` has a component entry with `childFramePadding[]`, the CSS padding rule targets a child element (e.g. `.buttonTertiary span`). If the HTML renders bare text without that child element, the padding is silently missing — the CSS rule matches nothing.
+
+**Run this check after every Gate [3] pass** (or any time you add a `childFramePadding` entry to the contract):
+
+For each component that has `childFramePadding` entries:
+1. Extract the `cssSelector` for each entry (e.g. `.buttonTertiary span` → child tag = `span`, parent class = `buttonTertiary`)
+2. Grep every file in `ds-config.json → paths.pluginCSS` for the parent class
+3. For every match that is a **text-bearing button** (i.e. the button content is visible text, not a pure SVG icon), verify the text is wrapped in the required child element
+4. Flag any bare-text instance as ❌ and fix immediately: wrap the text in `<span>...</span>` (or whichever element the `cssSelector` requires)
+5. Run `pnpm build` → `pnpm parity` → commit → push per the Auto-Fix Protocol
+
+**What counts as "text-bearing":** the button innerHTML contains a text node or interpolated string literal that is not an SVG — e.g. `>Cancel<`, `>${text}<`, `>${label}<`. Icon-only buttons (SVG-only content) do not need the child wrapper.
+
+**Example grep pattern for `.buttonTertiary`:**
+```bash
+grep -rn "buttonTertiary" apps/ --include="ui.src.html" | grep -v "\.buttonTertiary\b"
+```
+Then for each matched line, check whether text content is wrapped: `>Cancel<` is ❌, `><span>Cancel</span><` is ✅.
 
 ---
 
