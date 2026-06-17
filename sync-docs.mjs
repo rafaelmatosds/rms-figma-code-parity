@@ -1,0 +1,154 @@
+#!/usr/bin/env node
+// sync-docs.mjs — Validates and auto-patches documentation against audit.mjs.
+//
+// Run manually:   node sync-docs.mjs
+// Run as check:   node sync-docs.mjs --check   (exits 1 if anything would change)
+//
+// What it does:
+//   1. Parses audit.mjs to extract the authoritative gate list (labels + scripts).
+//   2. Checks README.md and rms-parity.md for stale gate counts.
+//   3. Auto-patches all "N automated gates" / "Run all N audit gates" / trend bar
+//      references to match the real count.
+//   4. Checks that each gate label (or a keyword form of it) appears in the doc.
+//   5. Prints a diff summary. Exits 1 if --check and anything was stale.
+
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join, dirname }                           from 'path';
+import { fileURLToPath }                           from 'url';
+
+const DIR   = dirname(fileURLToPath(import.meta.url));
+const CHECK = process.argv.includes('--check');
+const isTTY = process.stdout.isTTY;
+const green  = s => isTTY ? `\x1b[32m${s}\x1b[0m` : s;
+const red    = s => isTTY ? `\x1b[31m${s}\x1b[0m` : s;
+const yellow = s => isTTY ? `\x1b[33m${s}\x1b[0m` : s;
+const bold   = s => isTTY ? `\x1b[1m${s}\x1b[0m`  : s;
+const dim    = s => isTTY ? `\x1b[2m${s}\x1b[0m`  : s;
+
+// ── 1. Parse audit.mjs — source of truth ─────────────────────────────────────
+const auditSrc = readFileSync(join(DIR, 'audit.mjs'), 'utf8');
+
+// Extract gate labels from addGate('Label', ...) calls (in order)
+const gateLabels  = [...auditSrc.matchAll(/addGate\(\s*'([^']+)'/g)].map(m => m[1].trim());
+// Extract script names from runScriptAsync('script.mjs') calls (in order)
+const scriptNames = [...auditSrc.matchAll(/runScriptAsync\(\s*'([^']+)'/g)].map(m => m[1].trim());
+
+// Gates [1],[5],[6],[7] are computed inline, not via runScriptAsync
+const INLINE_INDICES = new Set([0, 4, 5, 6]);
+const gates = gateLabels.map((label, i) => {
+  if (INLINE_INDICES.has(i)) return { n: i + 1, label, script: 'inline' };
+  const scriptIdx = [...Array(i).keys()].filter(j => !INLINE_INDICES.has(j)).length;
+  return { n: i + 1, label, script: scriptNames[scriptIdx] ?? '?' };
+});
+
+const GATE_COUNT = gates.length;
+
+// For label presence checking, reduce each label to its first meaningful word(s)
+// (strip trailing parentheticals like "(color · sizing · typography)")
+function labelKeyword(label) {
+  return label
+    .replace(/\s*\(.*$/, '')      // drop trailing parenthetical
+    .replace(/\s{2,}/g, ' ')      // collapse runs of spaces
+    .trim()
+    .split(/\s+/)
+    .slice(0, 3)                  // first 3 words — specific enough
+    .join(' ');
+}
+
+console.log(bold(`\nrms-parity sync-docs — source of truth: ${GATE_COUNT} gates\n`));
+for (const g of gates) {
+  console.log(dim(`  [${String(g.n).padStart(2)}] ${g.label}  (${g.script})`));
+}
+console.log('');
+
+// ── 2. Doc files to check ─────────────────────────────────────────────────────
+const DOCS = [
+  { path: join(DIR, 'README.md'),                        label: 'README.md'       },
+  { path: join(DIR, '.claude/commands/rms-parity.md'),   label: 'rms-parity.md'  },
+];
+
+let anyStale = false;
+
+for (const doc of DOCS) {
+  if (!existsSync(doc.path)) {
+    console.log(yellow(`  ⚠️  ${doc.label} not found — skipped`));
+    continue;
+  }
+
+  const original = readFileSync(doc.path, 'utf8');
+  let patched    = original;
+  const changes  = [];
+
+  // ── Patch: "N automated gates"
+  patched = patched.replace(/\b(\d+)( automated gates\b)/g, (_, n, post) => {
+    if (Number(n) !== GATE_COUNT) changes.push(`"${n} automated gates" → "${GATE_COUNT} automated gates"`);
+    return `${GATE_COUNT}${post}`;
+  });
+
+  // ── Patch: "Run all N audit gates" / "all N audit gates" / "all N gates"
+  patched = patched.replace(/(Run all |all )(\d+)( audit gates| gates)/g, (_, pre, n, post) => {
+    if (Number(n) !== GATE_COUNT) changes.push(`"${pre}${n}${post}" → "${pre}${GATE_COUNT}${post}"`);
+    return `${pre}${GATE_COUNT}${post}`;
+  });
+
+  // ── Patch: trend bar fractions — only inside trend bar lines (e.g. "  13/13 [")
+  patched = patched.replace(/(^\s*(?:✅|❌)\s+\S+\s+)(\d+)\/(\d+)(\s*\[)/gm, (match, pre, a, b, post) => {
+    if (a !== b) return match; // unequal fractions are pass/fail ratios — don't touch
+    if (Number(a) !== GATE_COUNT) changes.push(`trend fraction "${a}/${b}" → "${GATE_COUNT}/${GATE_COUNT}"`);
+    return `${pre}${GATE_COUNT}/${GATE_COUNT}${post}`;
+  });
+
+  // ── Patch: trend bar block-fill — match bar length to GATE_COUNT
+  patched = patched.replace(/(\[)(█+)(░*)\]/g, (match, open, filled, empty) => {
+    const total = filled.length + empty.length;
+    if (total !== GATE_COUNT) {
+      const ratio   = filled.length / total;
+      const newFill = Math.round(ratio * GATE_COUNT);
+      const newStr  = `[${'█'.repeat(newFill)}${'░'.repeat(GATE_COUNT - newFill)}]`;
+      changes.push(`trend bar length ${total} → ${GATE_COUNT}`);
+      return newStr;
+    }
+    return match;
+  });
+
+  // ── Check: each gate's script name or label keyword appears in the doc.
+  // For subprocess gates, the script filename is the most reliable anchor.
+  // For inline gates, fall back to the first two words of the label.
+  const missingLabels = gates
+    .map(g => {
+      const anchor = g.script !== 'inline'
+        ? g.script                         // e.g. "parity-check.mjs"
+        : labelKeyword(g.label);           // e.g. "Snapshot freshness"
+      return { g, anchor };
+    })
+    .filter(({ anchor }) => anchor && !original.includes(anchor))
+    .map(({ g, anchor }) => `[${g.n}] ${g.label}  (looking for: "${anchor}")`);
+
+  // ── Report
+  if (changes.length === 0 && missingLabels.length === 0) {
+    console.log(green(`  ✅ ${doc.label} — in sync`));
+  } else {
+    anyStale = true;
+    if (changes.length) {
+      const verb = CHECK ? 'would patch' : 'patched';
+      console.log(yellow(`  ⚠️  ${doc.label} — ${verb}:`));
+      for (const c of changes) console.log(dim(`       ${c}`));
+    }
+    if (missingLabels.length) {
+      console.log(red(`  ❌ ${doc.label} — gate labels missing from doc (update manually):`));
+      for (const l of missingLabels) console.log(`       ${l}`);
+    }
+    if (!CHECK && changes.length) {
+      writeFileSync(doc.path, patched);
+      console.log(dim(`       Written.`));
+    }
+  }
+}
+
+console.log('');
+if (anyStale && CHECK) {
+  console.log(red('  Docs are stale. Run: node sync-docs.mjs\n'));
+  process.exit(1);
+} else if (!anyStale) {
+  console.log(green('  All docs in sync.\n'));
+}

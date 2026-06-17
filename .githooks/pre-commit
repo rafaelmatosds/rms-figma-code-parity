@@ -1,0 +1,20 @@
+#!/bin/sh
+# Auto-patch doc gate counts before every commit.
+# Staged changes to docs are re-staged automatically if sync-docs patches them.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+node "$SCRIPT_DIR/sync-docs.mjs"
+STATUS=$?
+
+if [ $STATUS -ne 0 ]; then
+  # sync-docs printed what's missing — abort so dev can fix the gate descriptions
+  echo ""
+  echo "  Pre-commit: docs have missing gate labels — update them manually, then re-commit."
+  exit 1
+fi
+
+# Re-stage any doc files that were patched (count/bar fixes are safe to auto-stage)
+git add "$SCRIPT_DIR/README.md" "$SCRIPT_DIR/.claude/commands/rms-parity.md" 2>/dev/null || true
+
+exit 0
