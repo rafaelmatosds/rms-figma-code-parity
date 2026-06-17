@@ -150,7 +150,7 @@ node scripts/audit.mjs --init
 
 This asks 4 questions, then auto-detects everything else:
 
-1. **Figma file URL** — paste the browser URL; file key is parsed automatically
+1. **Main Design System Figma file** — paste the browser URL; file key is parsed automatically
 2. **Token CSS path** — auto-detected if exactly one file found; confirm or override
 3. **Figma personal access token** *(optional)* — used to query Figma collections automatically and for Gate [9] visual regression; saved to `.env`
 4. **Consumer file?** *(optional)* — if this Figma file uses an external DS library, provide the DS source URL to enable `⏳ PENDING FIGMA SYNC` cross-check in Gate [2]

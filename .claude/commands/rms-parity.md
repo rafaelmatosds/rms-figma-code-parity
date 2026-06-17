@@ -26,7 +26,7 @@ At the start of every run, read `./ds-config.json` from the project root.
 
 **If it doesn't exist** (or `--init` flag is passed), ask the user for exactly four things — nothing else:
 
-1. **Figma file URL** — the full browser URL of the Figma file. Extract the file key (path segment after `/design/` or `/file/`). Accept URL, never ask for raw key.
+1. **Main Design System Figma file** — the full browser URL of the DS file. Extract the file key (path segment after `/design/` or `/file/`). Accept URL, never ask for raw key.
 2. **Theme CSS path** — relative path to the token CSS file(s). Auto-scan common locations; show as default if exactly one is found.
 3. **Figma personal access token** *(optional)* — needed for collection auto-detection and Gate [9]. If already in `.env`, use it silently. Write to `.env` if provided. Never store in `ds-config.json`.
 4. **Is this a consumer file?** *(optional)* — if yes, ask for the DS source Figma URL (parse `figmaSourceKey` from it). Enables `⏳ PENDING FIGMA SYNC` cross-check in Gate [2].
