@@ -99,7 +99,11 @@ try {
     if (map.NEUTRAL_LIGHT) neutralMaps[0] = map.NEUTRAL_LIGHT;
     if (map.NEUTRAL_DARK && neutralMaps.length > 1) neutralMaps[1] = map.NEUTRAL_DARK;
   }
-} catch { /* parity-map.mjs optional — runs with empty maps */ }
+} catch {
+  console.warn('⚠️  parity-map.mjs not found — running with empty token maps.');
+  console.warn('   All non-standard token names will appear as FAIL or NEW SKIP.');
+  console.warn('   Copy parity-map.example.mjs → parity-map.mjs to configure.\n');
+}
 
 // ── Parse token CSS (all configured files merged) ─────────────────────────────
 const rawCss = THEME_PATHS.filter(p => existsSync(join(ROOT, p)))
