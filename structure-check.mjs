@@ -32,15 +32,17 @@ const PLUGIN_CSS    = cfg.paths?.pluginCSS          ?? [];
 // ── Load structure-contract.mjs ───────────────────────────────────────────────
 let CONTRACT = {}, CSS_HEIGHT_RULES = {}, CSS_BASE_RULE_VARS = [], STATE_SELECTORS = [];
 let FIGMA_LAYOUT_TO_CSS = {}, FONT_SCALE_TO_CSS = {}, COMPONENT_CSS_SELECTORS = {};
+let CSS_PROPERTY_ASSERTIONS = [];
 try {
   const m = await import(join(ROOT, 'structure-contract.mjs'));
-  if (m.CONTRACT)                CONTRACT                = m.CONTRACT;
-  if (m.CSS_HEIGHT_RULES)        CSS_HEIGHT_RULES        = m.CSS_HEIGHT_RULES;
-  if (m.CSS_BASE_RULE_VARS)      CSS_BASE_RULE_VARS      = m.CSS_BASE_RULE_VARS;
-  if (m.STATE_SELECTORS)         STATE_SELECTORS         = m.STATE_SELECTORS;
-  if (m.FIGMA_LAYOUT_TO_CSS)     FIGMA_LAYOUT_TO_CSS     = m.FIGMA_LAYOUT_TO_CSS;
-  if (m.FONT_SCALE_TO_CSS)       FONT_SCALE_TO_CSS       = m.FONT_SCALE_TO_CSS;
-  if (m.COMPONENT_CSS_SELECTORS) COMPONENT_CSS_SELECTORS = m.COMPONENT_CSS_SELECTORS;
+  if (m.CONTRACT)                  CONTRACT                  = m.CONTRACT;
+  if (m.CSS_HEIGHT_RULES)          CSS_HEIGHT_RULES          = m.CSS_HEIGHT_RULES;
+  if (m.CSS_BASE_RULE_VARS)        CSS_BASE_RULE_VARS        = m.CSS_BASE_RULE_VARS;
+  if (m.STATE_SELECTORS)           STATE_SELECTORS           = m.STATE_SELECTORS;
+  if (m.FIGMA_LAYOUT_TO_CSS)       FIGMA_LAYOUT_TO_CSS       = m.FIGMA_LAYOUT_TO_CSS;
+  if (m.FONT_SCALE_TO_CSS)         FONT_SCALE_TO_CSS         = m.FONT_SCALE_TO_CSS;
+  if (m.COMPONENT_CSS_SELECTORS)   COMPONENT_CSS_SELECTORS   = m.COMPONENT_CSS_SELECTORS;
+  if (m.CSS_PROPERTY_ASSERTIONS)   CSS_PROPERTY_ASSERTIONS   = m.CSS_PROPERTY_ASSERTIONS;
 } catch { /* optional — runs with empty contract */ }
 
 // ── Load snapshot ─────────────────────────────────────────────────────────────
@@ -311,6 +313,45 @@ if (themeCSS && Object.keys(COMPONENT_CSS_SELECTORS).length) {
   }
 }
 
+// ── Gate [3b]: Border-sides check ────────────────────────────────────────────
+// When contract.strokeSides is set, verifies the CSS uses exactly those border sides.
+//   'bottom' → must have border-bottom; must NOT have bare "border:" shorthand
+//   'all'    → must have bare "border:" shorthand
+// This catches the specific class of bug where all-sides border is used when only
+// a bottom divider is correct (or vice versa).
+// To enable: add strokeSides: 'bottom' | 'all' to the component in CONTRACT.
+const BSIDES_FAIL = [], BSIDES_PASS = [];
+
+if (themeCSS && Object.keys(COMPONENT_CSS_SELECTORS).length) {
+  for (const [comp, contract] of Object.entries(CONTRACT)) {
+    if (!contract.strokeSides) continue;
+    const selCfg = COMPONENT_CSS_SELECTORS[comp];
+    if (!selCfg) continue;
+    const mainBlock = findBlock(themeCSS, selCfg.main, themeIndex);
+    if (!mainBlock) { BSIDES_FAIL.push(`${comp}/stroke-sides: selector "${selCfg.main}" not found`); continue; }
+
+    // \bborder\s*: matches bare "border:" shorthand but NOT "border-bottom:", "border-radius:", etc.
+    const hasShorthand = /\bborder\s*:/.test(mainBlock);
+    const hasBottom    = /\bborder-bottom\s*:/.test(mainBlock);
+
+    if (contract.strokeSides === 'bottom') {
+      if (hasShorthand) {
+        BSIDES_FAIL.push(`${comp}/stroke-sides: CSS uses "border:" (all sides) — contract says border-bottom only`);
+      } else if (!hasBottom) {
+        BSIDES_FAIL.push(`${comp}/stroke-sides: CSS missing "border-bottom" — contract says bottom stroke only`);
+      } else {
+        BSIDES_PASS.push(`${comp}/stroke-sides`);
+      }
+    } else if (contract.strokeSides === 'all') {
+      if (!hasShorthand) {
+        BSIDES_FAIL.push(`${comp}/stroke-sides: CSS missing "border:" shorthand — contract says all-sides stroke`);
+      } else {
+        BSIDES_PASS.push(`${comp}/stroke-sides`);
+      }
+    }
+  }
+}
+
 // ── Gate [3c]: Phantom CSS borders ───────────────────────────────────────────
 // Scans EVERY CSS rule whose selector contains a component's base class and flags
 // any `border` or `outline` property when Figma has no stroke on any variant.
@@ -394,17 +435,19 @@ if (themeCSS && Object.keys(COMPONENT_CSS_SELECTORS).length) {
       continue;
     }
 
-    // (a) inset: (outer_h − inner_h) / 2
+    // (a) inset vertical component — must equal (outer_h − inner_h) / 2
+    // Supports "4px" (all-sides) or "4px 0" (vertical horizontal) — checks first value only
     const expectedInset = (contract.h - pill.innerH) / 2;
     const insetMatch = beforeBlock.match(/\binset\s*:\s*([^;]+)/);
     if (!insetMatch) {
       PILL_FAIL.push(`${comp}/pill-inset: "inset" not set in "${selCfg.beforeSel}" — expected ${expectedInset}px`);
     } else {
-      const actualPx = toPx(insetMatch[1]);
+      const verticalPart = insetMatch[1].trim().split(/\s+/)[0];
+      const actualPx = toPx(verticalPart);
       if (actualPx === null) {
-        PILL_FAIL.push(`${comp}/pill-inset: could not resolve "${insetMatch[1].trim()}" to px`);
+        PILL_FAIL.push(`${comp}/pill-inset: could not resolve vertical inset "${verticalPart}" to px`);
       } else if (actualPx !== expectedInset) {
-        PILL_FAIL.push(`${comp}/pill-inset: inset is ${actualPx}px — expected ${expectedInset}px  (outer ${contract.h}px − inner ${pill.innerH}px) / 2`);
+        PILL_FAIL.push(`${comp}/pill-inset: vertical inset is ${actualPx}px — expected ${expectedInset}px  (outer ${contract.h}px − inner ${pill.innerH}px) / 2`);
       } else {
         PILL_PASS.push(`${comp}/pill-inset`);
       }
@@ -422,6 +465,77 @@ if (themeCSS && Object.keys(COMPONENT_CSS_SELECTORS).length) {
         } else {
           PILL_PASS.push(`${comp}/pill-radius`);
         }
+      }
+    }
+
+    // (c) inset horizontal component — when hoverPill.insetH is defined
+    // Catches "inset: 4px" (wrong — pill narrowed LR) vs "inset: 4px 0" (full width)
+    if (pill.insetH !== undefined && insetMatch) {
+      const insetParts = insetMatch[1].trim().split(/\s+/);
+      if (insetParts.length < 2) {
+        const expectedH = pill.insetH === 0 ? '0' : `${pill.insetH}px`;
+        PILL_FAIL.push(`${comp}/pill-inset-h: inset has no horizontal value — expected "…px ${expectedH}" (horizontal must be ${expectedH})`);
+      } else {
+        const horizPart  = insetParts[1];
+        const expectedH  = pill.insetH;
+        const actualH    = (horizPart === '0') ? 0 : toPx(horizPart);
+        if (actualH === expectedH) {
+          PILL_PASS.push(`${comp}/pill-inset-h`);
+        } else {
+          const expectedStr = expectedH === 0 ? '0' : `${expectedH}px`;
+          PILL_FAIL.push(`${comp}/pill-inset-h: horizontal inset is "${horizPart}" — expected ${expectedStr}`);
+        }
+      }
+    }
+  }
+}
+
+// ── Gate [3e]: CSS property assertions ───────────────────────────────────────
+// Verifies arbitrary CSS properties on any selector — for plugin-specific
+// selectors that mirror DS components (e.g. buttonListRow) but aren't in CONTRACT.
+//
+// Export CSS_PROPERTY_ASSERTIONS from structure-contract.mjs as an array of:
+//   { sel, prop, expected }    — CSS value must equal exactly this string
+//   { sel, prop, present }     — true = property must exist; false = must NOT exist
+//   { sel, prop, expectedVar } — property must use var(expectedVar)
+//
+// Uses allIndex (comment-stripped, all CSS files) so pseudo-elements work too.
+const ASSERT_FAIL = [], ASSERT_PASS = [];
+
+if (CSS_PROPERTY_ASSERTIONS.length) {
+  const propRe = (prop) => new RegExp(
+    '(?<![a-zA-Z-])' + prop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:\\s*([^;\\n]+)'
+  );
+  const presentRe = (prop) => new RegExp(
+    '\\b' + prop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:'
+  );
+
+  for (const a of CSS_PROPERTY_ASSERTIONS) {
+    const block = findBlock(allCss, a.sel, allIndex);
+
+    if ('expected' in a) {
+      const m = block?.match(propRe(a.prop));
+      const actual = m ? m[1].trim() : null;
+      if (actual === a.expected) {
+        ASSERT_PASS.push(`${a.sel}/${a.prop}`);
+      } else {
+        ASSERT_FAIL.push(`${a.sel}/${a.prop}: "${actual ?? '(not set)'}" ≠ "${a.expected}"`);
+      }
+    } else if ('present' in a) {
+      const found = block ? presentRe(a.prop).test(block) : false;
+      if (a.present === found) {
+        ASSERT_PASS.push(`${a.sel}/${a.prop}`);
+      } else if (a.present) {
+        ASSERT_FAIL.push(`${a.sel}/${a.prop}: property missing — must be present`);
+      } else {
+        ASSERT_FAIL.push(`${a.sel}/${a.prop}: has "${a.prop}:" — must NOT be present`);
+      }
+    } else if ('expectedVar' in a) {
+      const usedVar = block ? extractPropVar(block, a.prop) : null;
+      if (usedVar === a.expectedVar) {
+        ASSERT_PASS.push(`${a.sel}/${a.prop}`);
+      } else {
+        ASSERT_FAIL.push(`${a.sel}/${a.prop}: uses "${usedVar ?? '(not set)'}" ≠ "${a.expectedVar}"`);
       }
     }
   }
@@ -478,6 +592,17 @@ if (STATE_SELECTORS.length) {
 }
 
 if (Object.keys(COMPONENT_CSS_SELECTORS).length) {
+  if (BSIDES_PASS.length + BSIDES_FAIL.length > 0) {
+    const bTotal = BSIDES_PASS.length + BSIDES_FAIL.length;
+    console.log(`\n✅ PASS  ${BSIDES_PASS.length}/${bTotal} CSS border-sides checks`);
+    console.log(`❌ FAIL  ${BSIDES_FAIL.length}`);
+    if (BSIDES_FAIL.length) {
+      console.log('\n─── Gate [3b] — wrong CSS border sides vs contract.strokeSides ──────');
+      for (const f of BSIDES_FAIL) console.log(`  ❌ ${f}`);
+      console.log('   Fix: match border-side CSS to contract.strokeSides (\'bottom\' → border-bottom; \'all\' → border).');
+    }
+  }
+
   console.log(`\n✅ PASS  ${PHANTOM_PASS.length} component(s) — no phantom CSS borders`);
   console.log(`❌ FAIL  ${PHANTOM_FAIL.length} phantom border(s)`);
   if (PHANTOM_FAIL.length) {
@@ -495,14 +620,26 @@ if (Object.keys(COMPONENT_CSS_SELECTORS).length) {
       console.log('\n─── Gate [3d] — ::before pill inset or border-radius wrong ──────────');
       for (const f of PILL_FAIL) console.log(`  ❌ ${f}`);
       console.log('   Fix: set inset to (outer_h − inner_h)/2 px; border-radius to the DS radius var.');
-      console.log('   Contract: add hoverPill: { innerH, radiusVar } to structure-contract.mjs.');
+      console.log('   Contract: add hoverPill: { innerH, radiusVar, insetH } to structure-contract.mjs.');
     }
+  }
+}
+
+if (CSS_PROPERTY_ASSERTIONS.length) {
+  const aTotal = ASSERT_PASS.length + ASSERT_FAIL.length;
+  console.log(`\n✅ PASS  ${ASSERT_PASS.length}/${aTotal} CSS property assertions`);
+  console.log(`❌ FAIL  ${ASSERT_FAIL.length}`);
+  if (ASSERT_FAIL.length) {
+    console.log('\n─── Gate [3e] — CSS property assertion failed ───────────────────────');
+    for (const f of ASSERT_FAIL) console.log(`  ❌ ${f}`);
+    console.log('   Fix: update the CSS rule to match the assertion in CSS_PROPERTY_ASSERTIONS.');
   }
 }
 
 const anyFail = FAIL.length > 0 || MISSING.length > 0 || CSS_FAIL.length > 0
              || VAR_FAIL.length > 0 || SELECTOR_FAIL.length > 0 || PROP_FAIL.length > 0
-             || PHANTOM_FAIL.length > 0 || PILL_FAIL.length > 0;
+             || PHANTOM_FAIL.length > 0 || PILL_FAIL.length > 0
+             || BSIDES_FAIL.length > 0 || ASSERT_FAIL.length > 0;
 
 if (!anyFail) { console.log('\nAll structural checks pass. ✓\n'); process.exit(0); }
 else { console.log(''); process.exit(1); }

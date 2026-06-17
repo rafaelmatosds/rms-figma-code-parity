@@ -19,7 +19,7 @@ Invoke `/rms-parity` in any project to run a full parity check: Phase 1 refreshe
 |---|---|
 | [1] Snapshot freshness | Stale snapshot (always ✅ after Phase 1) |
 | [2] Token parity | Wrong color/sizing/typography value |
-| [3] Structure | Wrong height, padding var, fill structure, stroke presence |
+| [3] Structure | Wrong height, padding var, fill structure, stroke presence; [3b] border-sides (`strokeSides`); [3c] phantom borders; [3d] hover pill geometry (`hoverPill.insetH`); [3e] CSS property assertions (`CSS_PROPERTY_ASSERTIONS`) |
 | [4] Bound-token coverage | Token used in Figma but no CSS var in code |
 | [5] Unused CSS vars | Declared-but-orphaned vars (Hard Rule #2) |
 | [6] Hardcoded values | Raw hex/px in CSS rules (Hard Rule #5) |
@@ -206,16 +206,21 @@ Configure `webhook.port` and `webhook.secret` in `ds-config.json`. The server ne
 
 ---
 
-## Visual regression (optional)
+## Visual regression
 
-Gate [9] compares live Figma frame screenshots against stored references:
+Gate [9] compares live Figma frame screenshots against stored references.
 
-```bash
-export FIGMA_TOKEN=xxx
-node scripts/audit.mjs   # Gate [9] runs automatically
+**Required when `frames` are configured in `ds-config.json`.** If `frames` is empty or absent, Gate [9] skips silently (pass). If frames are configured and `FIGMA_TOKEN` is missing, Gate [9] hard-fails — the audit cannot pass without it.
+
+Add your token to `.env` at the project root (already gitignored):
+
+```
+FIGMA_TOKEN=your_figma_personal_access_token
 ```
 
-First run saves references to `.parity-refs/`. Subsequent runs diff against them. To accept a change:
+Get a token: Figma → Account Settings → Personal access tokens → Generate (File content: read scope).
+
+The audit loads `.env` automatically — no shell export needed. First run saves references to `.parity-refs/`. Subsequent runs diff against them. To accept a change:
 
 ```bash
 mv .parity-refs/<frame-id>.new.png .parity-refs/<frame-id>.png

@@ -34,6 +34,15 @@ import { fileURLToPath }                                        from 'url';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT       = process.cwd();
+
+// Load .env from project root if present (no dotenv dependency)
+const envPath = join(ROOT, '.env');
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  }
+}
 const today      = new Date().toISOString().slice(0, 10);
 const WIDTH      = 60;
 const SHOW_TREND = process.argv.includes('--trend');
@@ -380,7 +389,7 @@ async function bootstrapConfig() {
   function parseGate9(r) {
     if (r.status === null) return { pass: true, lines: ['⏭ visual-regression-check.mjs not found — skipped'] };
     const out = r.stdout + r.stderr;
-    if (r.status === 0 && (out.includes('FIGMA_TOKEN') || out.includes('No frames'))) {
+    if (r.status === 0 && out.includes('No frames')) {
       const msg = out.split('\n').find(l => l.trim()) ?? 'Skipped';
       return { pass: true, lines: [`⏭ ${msg.trim()}`] };
     }

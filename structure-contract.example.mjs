@@ -13,6 +13,15 @@
 //                    'before' = fill is on a child Background rect → CSS ::before
 //   innerRadiusVar — 'radii/token' or null
 //   strokeOnDefault — true if Figma State=Default has a stroke
+//   strokeSides    — 'bottom' | 'all' (optional). When set, Gate [3b] enforces which
+//                    CSS border sides are used. 'bottom' → requires border-bottom, forbids
+//                    the border: shorthand. 'all' → requires the border: shorthand.
+//                    Omit when the component has no stroke (strokeOnDefault: false).
+//   hoverPill      — { innerH, radiusVar, insetH } (optional). When set, Gate [3d]
+//                    verifies the ::before pseudo-element geometry:
+//                      innerH    — pill height in px (outer h minus vertical inset × 2)
+//                      radiusVar — Figma token for border-radius (e.g. 'radii/button')
+//                      insetH    — horizontal inset in px (0 = full outer width, no side gap)
 export const CONTRACT = {
   // Example:
   // button: {
@@ -79,6 +88,22 @@ export const COMPONENT_CSS_SELECTORS = {
   // input:  { main: '.inputWrap', fontSel: '.inputField', skipTBPadding: true },
   // card:   { main: '.card', radiusSel: '.card::before' },
 };
+
+// ─── CSS property assertions (Gate [3e]) ─────────────────────────────────────
+// Guards plugin-specific selectors that aren't in CONTRACT but must stay in sync
+// with DS geometry. Each entry: { sel, prop, expected|present|expectedVar }.
+//   expected    — exact CSS value string (e.g. '40px', '4px 0')
+//   present     — boolean: property must (true) or must NOT (false) appear in that block
+//   expectedVar — property must use var(expectedVar) (e.g. '--radius-full')
+// Use for plugin-level wrappers that mirror a DS component's geometry.
+export const CSS_PROPERTY_ASSERTIONS = [
+  // Example: a .listRow wrapper that mirrors the buttonList DS component
+  // { sel: '.listRow',         prop: 'height',        expected:    '40px'          },
+  // { sel: '.listRow',         prop: 'border-bottom', present:     true            },
+  // { sel: '.listRow',         prop: 'border',        present:     false           },
+  // { sel: '.listRow::before', prop: 'inset',         expected:    '4px 0'         },
+  // { sel: '.listRow::before', prop: 'border-radius', expectedVar: '--radius-full' },
+];
 
 // ─── Sub-component isolation: documented broad rules ────────────────────────
 // Consumed by subcomponent-isolation-check.mjs (Gate [8]).

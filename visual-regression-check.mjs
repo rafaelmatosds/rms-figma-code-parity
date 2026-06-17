@@ -30,16 +30,18 @@ const FILE_KEY  = cfg.figmaFileKey;
 const FRAMES    = cfg.frames ?? [];
 const REFS_DIR  = join(ROOT, cfg.visualRefs ?? '.parity-refs');
 
-if (!TOKEN) {
-  console.log('⏭ FIGMA_TOKEN not set — visual regression skipped (set env var to enable)');
-  process.exit(0);
-}
-if (!FILE_KEY) {
-  console.error('❌ figmaFileKey missing in ds-config.json'); process.exit(1);
-}
 if (!FRAMES.length) {
   console.log('⏭ No frames configured in ds-config.json — visual regression skipped');
   process.exit(0);
+}
+if (!TOKEN) {
+  console.error('❌ FIGMA_TOKEN not set — frames are configured but visual regression cannot run.');
+  console.error('   Add FIGMA_TOKEN=<token> to .env at the project root.');
+  console.error('   Get a token: Figma → Account Settings → Personal access tokens (File content: read).');
+  process.exit(1);
+}
+if (!FILE_KEY) {
+  console.error('❌ figmaFileKey missing in ds-config.json'); process.exit(1);
 }
 
 // Ensure refs directory exists
