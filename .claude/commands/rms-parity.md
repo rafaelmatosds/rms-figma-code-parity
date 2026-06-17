@@ -4,6 +4,22 @@ Full parity workflow in one command. Phase 1 (live Figma refresh) always runs be
 
 > **Phase 1 is never skipped** — unless you ran `/rms-parity` earlier in this same conversation and the snapshot was updated then. A same-day snapshot from a *prior session or context window* is not safe — renames and additions since that run would be invisible without a fresh query. If you are resuming after a context summary, compaction, or a new conversation, always re-query.
 
+## Auto-Fix Protocol
+
+**Whenever you find and fix a bug during a parity audit — do all of this automatically, without waiting to be asked:**
+
+1. Apply the fix (CSS, HTML, snapshot, contract, parity-map — wherever it belongs)
+2. Before fixing, grep ALL usages of the affected selector/pattern to catch every instance (e.g. if `.buttonTertiary` needs a `<span>`, search all `ui.src.html` files for bare-text `buttonTertiary` buttons)
+3. Run `pnpm build` from the project root to rebuild all plugins
+4. Run `pnpm parity` (or the equivalent audit command) to verify the fix is clean
+5. If Gate [9] (visual regression) shows a new baseline needed, accept it: `mv .parity-refs/<frameId>.new.png .parity-refs/<frameId>.png`
+6. Stage and commit all affected files with a descriptive message: `feat(parity): <what was fixed>`
+7. Push: `git push`
+
+**Never stop between these steps to ask for permission.** The user should not have to say "now push it."
+
+---
+
 ## Usage
 
 ```
@@ -801,6 +817,9 @@ A consumer file is a Figma product file (e.g. a client project) that uses the DS
 node consumer-audit.mjs --file <consumerFileKey>
 # Example:
 node consumer-audit.mjs --file GfHErcAjjw277iPunsZXCU
+
+# Full token master list with per-mode values (markdown):
+node consumer-audit.mjs --file GfHErcAjjw277iPunsZXCU --report-md consumer-token-status.md
 ```
 
 Run from the **DS project root** (where `ds-config.json` and `figma-vars.snapshot.json` live).
@@ -824,14 +843,30 @@ Run from the **DS project root** (where `ds-config.json` and `figma-vars.snapsho
 
 - Console report grouped by component prefix with count of missing tokens.
 - `consumer-audit-report.json` at project root (gitignored) — full machine-readable output.
+- `--report-md <file>` — full master token table with Type + per-mode values for every token.
+
+### Variable value display in `--report-md`
+
+The markdown report resolves all variable types:
+
+| Figma type | Display |
+|---|---|
+| COLOR | `#rrggbb` hex |
+| FLOAT | numeric value (rounded to 2 decimal places) |
+| BOOLEAN | `true` / `false` |
+| STRING | string value |
+| VARIABLE_ALIAS | `→ alias/token/name` (one hop — shows what it aliases) |
+
+Mode columns are derived from the linked DS collection's actual mode names (e.g. `Light`, `Dark`). If the consumer has no linked var for a token (PENDING_UPDATE or STALE-only-in-local), values fall back to the local collection's modes.
 
 ## Interpreting results
 
-| Finding | Meaning | Action |
+| Status | Meaning | Action |
 |---|---|---|
-| Token in DS, missing in consumer local | DS added this token after consumer was set up | Add to consumer's local collection with brand value, OR leave if DS default is acceptable |
-| Token in DS, present in consumer local | Consumer has explicitly overridden it | No action — intentional brand customization |
-| No remote collections found | Consumer may not use this DS as a library, OR token has no FIGMA_TOKEN access to the linked lib | Verify in Figma → Assets → Libraries; check token scope |
+| ✅ SYNCED | Token in DS snapshot AND in consumer's linked library | No action needed |
+| ⏳ PENDING UPDATE | Token in DS snapshot but missing from consumer's linked library | Consumer must accept the DS library update in Figma → Assets → Libraries |
+| 🗑 STALE | Token not in DS snapshot (removed from DS), still in consumer's linked copy | Disappears automatically when consumer accepts library update |
+| No remote collections found | Consumer may not use this DS as a library, OR `FIGMA_TOKEN` lacks access to the linked lib | Verify in Figma → Assets → Libraries; check token scope |
 
 ## ⚠️ Hard rule: never infer library linkage from component names
 
