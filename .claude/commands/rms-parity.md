@@ -52,6 +52,10 @@ Once `ds-config.json` exists, extract:
 - `figma.modes` — array of `{ name, snapshotKey, cssSelector }` defining all DS modes
   - OR legacy: `figma.darkMode` / `figma.lightMode` (two-mode shorthand)
 - `figma.primitivePrefix` — token path prefix to exclude from component token walks (e.g. `"primitives/"`)
+- `figma.namingConvention` *(optional)* — overrides for how Figma token paths are converted to CSS var names:
+  - `dropSegments` — array of path segments to strip from the end of a token path before deriving the var name. Default: `["color", "default"]`. Set to `[]` to preserve all segments (e.g. when CSS vars end in `-color`).
+  - `iconTextAlias` — when `true` (default), `/iconText/` in a token path is normalised to `/text/`. Set to `false` when the codebase keeps `iconText` as-is.
+- `paths.themeCSS` — path to the token CSS file, **or an array of paths** for projects that split tokens across multiple files (e.g. `["src/tokens/base.css", "src/tokens/components.css"]`). All files are merged before any gate runs. Auto-detection finds any `.css`/`.scss` file containing `:root {` and `--` — no need to manually configure `pluginCSS` for component files in Vue/React/Svelte projects.
 - `visualRefs` — directory for stored reference screenshots (default: `.parity-refs`)
 - `webhook.port` / `webhook.secret` — webhook server config
 
@@ -67,7 +71,7 @@ Use these throughout all Figma queries. Never hardcode collection or mode names.
   - `"high-contrast-media"` → `@media (prefers-contrast: more) { :root { } }`
   - `"class:<name>"` → `.<name> :root { }`
   - `"data:<attr>=<val>"` → `[data-theme="dark"] :root { }`
-- **Token naming convention:** `token/path/default` → `--token-path` (drop `/default`, `/color`; `/` → `-`). Any additional shortenings are documented in `parity-map.mjs`.
+- **Token naming convention:** by default, `token/path/default` → `--token-path` (drop `/default`, `/color`; `/` → `-`). Override with `figma.namingConvention` in `ds-config.json` when the project uses a different convention (e.g. keeping `/color` as `-color` suffix). Any additional shortenings are documented in `parity-map.mjs`.
 - **Primitive scale:** document your DS's primitive tokens in `parity-map.mjs` under `NEUTRAL_LIGHT` / `NEUTRAL_DARK` (two modes) or `NEUTRAL_MAPS` (three or more modes) so the resolver can follow alias chains automatically.
 - **Snapshot files** at paths defined in `ds-config.json`.
 
@@ -493,14 +497,14 @@ All 10 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | [2] | Token value parity — color (all modes) + sizing + typography. NEW SKIP = missing CSS var — treat as ❌ |
 | [3] | Structural parity — height · padding/gap/font/radius per-rule var bindings · fill structure · stroke |
 | [4] | Bound-token coverage — token used in Figma but no CSS var |
-| [5] | Unused CSS vars (Hard Rule #2) |
-| [6] | Hardcoded values in CSS rules (Hard Rule #5) |
+| [5] | Unused CSS vars (Hard Rule #2) — scans entire repo automatically (`.vue`, `.jsx`, `.tsx`, `.html`, `.css`, `.scss`, `.js`, `.ts`); no `pluginCSS` config needed |
+| [6] | Hardcoded values in CSS rules (Hard Rule #5) — same auto-scan scope as Gate [5] |
 | [7] | Build freshness — source newer than built output |
 | [8] | Sub-component isolation (Hard Rule #8) |
 | [9] | Effect token coverage — shadow/blur tokens have CSS vars (skips if no `effects` in snapshot) |
 | [10] | State completeness — all COMPONENT_SET states covered (skips if `component-state-tokens.json` missing) |
 
-**Gate [2] fix mode:** if Gate [2] fails on sizing/typography values only, run `node scripts/parity-check.mjs --fix` to auto-apply the correct values to `theme.css`, then re-run the audit.
+**Gate [2] fix mode:** if Gate [2] fails on sizing/typography values only, run `node scripts/parity-check.mjs --fix` to auto-apply the correct values to the primary token CSS file (`paths.themeCSS[0]`), then re-run the audit.
 
 **History:** every run appends to `parity-history.json`. View trend: `node scripts/audit.mjs --trend`.
 
