@@ -32,7 +32,7 @@ import readline                                                  from 'readline'
 import { spawn, spawnSync }                                      from 'child_process';
 import { existsSync, readdirSync, readFileSync, statSync,
          writeFileSync, copyFileSync }                           from 'fs';
-import { join, dirname, resolve }                               from 'path';
+import { join, dirname, resolve, relative }                     from 'path';
 import { fileURLToPath }                                        from 'url';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -421,6 +421,7 @@ async function bootstrapConfig() {
   const SCAN_EXCLUDE_FILENAMES = new Set([
     'figma-vars.snapshot.json', 'figma-structure.snapshot.json',
     'bound-tokens.json', 'parity-history.json', 'master-token-table.md',
+    ...(cfg.scanExcludeFilenames ?? []),
   ]);
 
   function collectSourceFiles(dir = ROOT, results = []) {
@@ -624,17 +625,34 @@ async function bootstrapConfig() {
     // Use var() for every DS-token-backed value. Document intentional layout math
     // (100%, 50%, positioning zeros) in ds-config.json → knownHardcodedExceptions
     // as { file, pattern } objects or plain substring strings.
-    const scanTargets = allSourceFiles();
+    // gate6ExcludeDirs allows scoping Gate [6] to DS package files only, excluding app consumers.
+    const g6ExcludeDirs = new Set(cfg.gate6ExcludeDirs ?? []);
+    const scanTargets = g6ExcludeDirs.size > 0
+      ? allSourceFiles().filter(f => {
+          const rel = relative(ROOT, f).replace(/\\/g, '/');
+          return !rel.split('/').some(seg => g6ExcludeDirs.has(seg));
+        })
+      : allSourceFiles();
     const scanArgs    = ['-n', '-E'];
 
     // Shared legitimacy filter
     function isLegitimate(line) {
       const codePart = line.replace(/^[^:]+:\d+:\s*/, '');
-      // CSS variable declarations (--name: value) are always OK
-      if (/^\s*--[a-zA-Z]/.test(codePart)) return true;
+      // CSS variable declarations (--name: value) — catches inline `:root { --var: #hex; }` too
+      if (/--[a-zA-Z][\w-]*\s*:/.test(codePart)) return true;
+      // Single-line JS/CSS comments
+      if (/^\s*\/\//.test(codePart)) return true;
+      // JSDoc / block-comment continuation lines (` * blah`)
+      if (/^\s*\*/.test(codePart)) return true;
       const stripped = codePart.replace(/\/\*[^*]*\*\//g, '');
       // Value wrapped in quotes/backticks → JS/Vue string, not a real CSS rule
       if (/[`"'][^`"']*:\s*[^`"']*[`"']/.test(codePart)) return true;
+      // Standalone quoted hex string (fallback `|| '#hex'` or canvas `fillStyle = "#hex"`)
+      if (/[`"']#[0-9a-fA-F]{3,8}[`"']/.test(codePart)) return true;
+      // HTML inline style attribute — value is in HTML, not a CSS rule
+      if (/\bstyle\s*=\s*["'`{]/.test(codePart)) return true;
+      // JS innerHTML / insertAdjacentHTML / template literal building HTML
+      if (/innerHTML\s*[+=]|insertAdjacentHTML/.test(codePart)) return true;
       // Known exceptions from ds-config.json
       if (KNOWN_FS_EXCEPTS.some(e => {
         if (typeof e === 'string') return line.includes(e);
