@@ -293,7 +293,7 @@ Navigate to your DS Components page, find each `COMPONENT_SET`, navigate to the 
 ```js
 // Extract: h, paddingVar {tb,lr}, gapVar, fontSizeVar, fontWeightVar,
 //          fillStructure ('direct' | 'before' | 'none'), innerRadiusVar,
-//          strokeOnDefault, strokeOnAnyState
+//          strokeOnDefault, strokeOnAnyState, childFramePadding
 // fillStructure = 'before' when fill is on a child "Background" rect (→ CSS ::before)
 //                 'direct' when on the frame itself
 //                 'none' when default state has no fill
@@ -303,6 +303,11 @@ Navigate to your DS Components page, find each `COMPONENT_SET`, navigate to the 
 //                    "Background" child rect rather than the component frame itself.
 //                    Controls Gate [3c] phantom border scan — when false, any CSS `border`
 //                    or `outline` on any selector matching this component is a phantom and fails.
+// childFramePadding = direct child FRAME nodes (not RECTANGLE/TEXT/INSTANCE) that have at
+//                    least one bound padding variable. These "wrapper frames" (e.g. LabelContainer)
+//                    add inner padding on top of the outer component padding. The CSS must account
+//                    for them via padding on the matching HTML child element (e.g. span, .label).
+//                    Omit if no child frames have bound padding.
 ```
 
 Capture `strokeOnAnyState` with a **deep recursive walk** across all variants:
@@ -319,6 +324,25 @@ function deepHasStroke(node, depth = 0) {
 const strokeOnAnyState = set.children.some(v => deepHasStroke(v));
 ```
 
+Capture `childFramePadding` by walking direct FRAME children of the State=Default variant:
+
+```js
+function getBoundPaddingVar(node, idToVar) {
+  const bv = node.boundVariables ?? {};
+  const res = (id) => id ? idToVar[id]?.name ?? null : null;
+  const lr = res(bv.paddingLeft?.id ?? bv.paddingRight?.id);
+  const tb = res(bv.paddingTop?.id ?? bv.paddingBottom?.id);
+  return (lr || tb) ? { tb: tb ?? null, lr: lr ?? null } : null;
+}
+const childFramePadding = [];
+for (const child of defaultVariant.children ?? []) {
+  if (child.type !== 'FRAME') continue;
+  const pv = getBoundPaddingVar(child, idToVar);
+  if (pv) childFramePadding.push({ name: child.name, paddingVar: pv });
+}
+// Include childFramePadding in snapshot only when non-empty
+```
+
 Write the result in this shape:
 ```json
 {
@@ -331,10 +355,33 @@ Write the result in this shape:
       "gapVar": "gap/s",
       "strokeOnDefault": false,
       "strokeOnAnyState": false
+    },
+    "buttonTertiary": {
+      "h": 24,
+      "paddingVar": { "tb": null, "lr": "padding/xs" },
+      "strokeOnDefault": false,
+      "strokeOnAnyState": false,
+      "childFramePadding": [
+        { "name": "LabelContainer", "paddingVar": { "tb": null, "lr": "padding/xs" } }
+      ]
     }
   }
 }
 ```
+
+**`childFramePadding` → CSS rule required.** Each entry is a Figma wrapper frame that adds padding inside the component, stacking on top of the outer frame's padding. The CSS must apply equivalent padding to the matching HTML child element. When you find a `childFramePadding` entry:
+
+1. **Identify the HTML equivalent** — determine which element in the rendered HTML corresponds to the Figma child frame (e.g. `LabelContainer` → `<span>` inside `.buttonTertiary`).
+2. **Verify or add a CSS rule** — grep for `.<component> <element> { padding`. If none exists, the padding layer is missing from the implementation — add it.
+3. **Document in `structure-contract.mjs`** so Gate [3] enforces it automatically:
+   ```js
+   buttonTertiary: {
+     // ...other fields...
+     childFramePadding: [
+       { name: 'LabelContainer', cssSelector: '.buttonTertiary span', paddingVar: { tb: null, lr: 'padding/xs' } }
+     ],
+   }
+   ```
 
 ---
 
