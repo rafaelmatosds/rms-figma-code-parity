@@ -273,17 +273,26 @@ if (REPORT_MD) {
     else if (inDS)          status = 'PENDING_UPDATE';
     else                    status = 'STALE';
 
-    const type = (linkedVar ?? localVar)?.resolvedType ?? '—';
+    const type = (linkedVar ?? localVar)?.resolvedType ?? 'COLOR';
     const modeValues = {};
-    for (const mode of linkedModes) {
-      const val = (linkedVar ?? localVar)?.valuesByMode?.[mode.modeId];
-      modeValues[mode.name] = val !== undefined ? resolveVal(val, mode.modeId) : '—';
-    }
-    // If no linked var, try local collection's own modes
-    if (!linkedVar && localVar && linkedModes.length === 0) {
-      for (const mode of (localColObj?.modes ?? [])) {
-        const val = localVar.valuesByMode?.[mode.modeId];
+    if (linkedVar || localVar) {
+      // Token exists in consumer — read from API
+      for (const mode of linkedModes) {
+        const val = (linkedVar ?? localVar)?.valuesByMode?.[mode.modeId];
         modeValues[mode.name] = val !== undefined ? resolveVal(val, mode.modeId) : '—';
+      }
+      // If no linked var, try local collection's own modes
+      if (!linkedVar && localVar && linkedModes.length === 0) {
+        for (const mode of (localColObj?.modes ?? [])) {
+          const val = localVar.valuesByMode?.[mode.modeId];
+          modeValues[mode.name] = val !== undefined ? resolveVal(val, mode.modeId) : '—';
+        }
+      }
+    } else {
+      // PENDING: token not in consumer — show DS snapshot values so user knows what they'll get
+      for (const mode of MODES) {
+        const hex = snap.color?.[mode.snapshotKey]?.[name];
+        modeValues[mode.name] = hex ? `${hex} *(DS)*` : '(new in DS)';
       }
     }
     rows.push({ name, status, type, modeValues });
