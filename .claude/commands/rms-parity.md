@@ -116,7 +116,7 @@ Both are machine-generated — never hand-edit. `bound-tokens.json` (project roo
 |---|---|---|---|
 | **1** | **Figma Refresh** | **Query live Figma, diff snapshots, overwrite both files, verify resolvers** | **Snapshots fresh; every change reconciled** |
 | **2** | **Bound token walk** | **Walk all DS frames → save to `bound-tokens.json`** | **File written** |
-| **2** | **`node scripts/audit.mjs`** | **All 9 gates — Gate [1] always ✅ since Phase 1 just ran** | **0 ❌ gates** |
+| **2** | **`node scripts/audit.mjs`** | **All 13 gates — Gate [1] always ✅ since Phase 1 just ran** | **0 ❌ gates** |
 | 2 | Component walk | Deep per-component inspection of all states, vars, tokens | 0 new divergences |
 | 2 | Master Token Table | Single source of truth with resolved hex for every token | 0 ❌ rows |
 
@@ -526,28 +526,31 @@ return used;
 
 ---
 
-## Phase 2 — Step 2: Run all 10 audit gates
+## Phase 2 — Step 2: Run all 13 audit gates
 
 ```bash
 node scripts/audit.mjs
 ```
 
-All 10 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
+All 13 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 
-| Gate | What it catches |
-|---|---|
-| [1] | Snapshot freshness — always ✅ after Phase 1 |
-| [2] | Token value parity — color (all modes) + sizing + typography. NEW SKIP = missing CSS var — treat as ❌ |
-| [3] | Structural parity — height · padding/gap/font/radius per-rule var bindings · fill structure · stroke on default · phantom CSS borders (Gate [3c]: any CSS `border`/`outline` on a component selector when `strokeOnAnyState=false` in snapshot) |
-| [4] | Bound-token coverage — token used in Figma but no CSS var |
-| [5] | Unused CSS vars (Hard Rule #2) — scans entire repo automatically (`.vue`, `.jsx`, `.tsx`, `.html`, `.css`, `.scss`, `.js`, `.ts`); no `pluginCSS` config needed |
-| [6] | Hardcoded values in CSS rules (Hard Rule #5) — same auto-scan scope as Gate [5] |
-| [7] | Build freshness — source newer than built output |
-| [8] | Sub-component isolation (Hard Rule #8) |
-| [9] | Effect token coverage — shadow/blur tokens have CSS vars (skips if no `effects` in snapshot) |
-| [10] | State completeness — all COMPONENT_SET states covered (skips if `component-state-tokens.json` missing) |
+| Gate | Script | What it catches |
+|---|---|---|
+| [1]  | inline | Snapshot freshness — always ✅ after Phase 1 |
+| [2]  | `parity-check.mjs` | Token value parity — color (all modes) + sizing + typography + alias chain. NEW SKIP = missing CSS var — treat as ❌. `⏳ PENDING FIGMA SYNC` when `figmaSourceKey` is set and consumer lags behind source. |
+| [3]  | `structure-check.mjs` | Structural parity — height · padding/gap/font/radius per-rule var bindings · fill structure · stroke on default · property assertions from `CSS_PROPERTY_ASSERTIONS` |
+| [4]  | `bound-check.mjs` | Bound-token coverage — token bound in Figma frame but no CSS var |
+| [5]  | inline | Unused CSS vars (Hard Rule #2) — scans entire repo (`.vue`, `.jsx`, `.tsx`, `.html`, `.css`, `.scss`, `.js`, `.ts`) |
+| [6]  | inline | Hardcoded values in CSS rules (Hard Rule #5) — raw hex or font-size px in rules, not `:root` declarations |
+| [7]  | inline | Build freshness — source files newer than built output (skips if no `plugins` configured) |
+| [8]  | `subcomponent-isolation-check.mjs` | Sub-component isolation (Hard Rule #8) — broad element selectors that override nested DS sub-component styles |
+| [9]  | `visual-regression-check.mjs` | Visual regression — Figma frame screenshots vs stored references (skips if `FIGMA_TOKEN` not set or `frames` empty) |
+| [10] | `state-check.mjs` | State completeness — all COMPONENT_SET state tokens covered (skips if no state data) |
+| [11] | `exemption-check.mjs` | Exemption validity — `EXPLICIT` / `SKIP_TOKENS` / `COVERED` entries still present in snapshot (stale entries = ❌) |
+| [12] | `dark-mode-check.mjs` | Dark mode completeness — all mode-variant tokens have a CSS override for non-default modes |
+| [13] | `naming-check.mjs` | CSS naming round-trip — every `theme.css` var traces back to a Figma token (or is declared in `SYSTEM_VARS`) |
 
-**Gate [2] fix mode:** if Gate [2] fails on sizing/typography values only, run `node scripts/parity-check.mjs --fix` to auto-apply the correct values to the primary token CSS file (`paths.themeCSS[0]`), then re-run the audit.
+**Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 
 **History:** every run appends to `parity-history.json`. View trend: `node scripts/audit.mjs --trend`.
 
