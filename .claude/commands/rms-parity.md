@@ -740,6 +740,64 @@ Document your primitive → CSS var mapping in `parity-map.mjs` under `NEUTRAL_L
 
 ---
 
+# Consumer File Audit
+
+---
+
+## When to use
+
+A consumer file is a Figma product file (e.g. a client project) that uses the DS as a linked library and maintains a local variable collection to override DS tokens with brand-specific values. Run this audit to find DS tokens the consumer file has not yet adopted — i.e. new tokens added to the DS after the consumer file was set up.
+
+## Usage
+
+```bash
+node consumer-audit.mjs --file <consumerFileKey>
+# Example:
+node consumer-audit.mjs --file GfHErcAjjw277iPunsZXCU
+```
+
+Run from the **DS project root** (where `ds-config.json` and `figma-vars.snapshot.json` live).
+
+## Prerequisites
+
+- `FIGMA_TOKEN` in `.env` — personal access token with "File content: Read" scope. The token owner needs at least **viewer** access to the consumer file; no edit access required.
+- A fresh DS snapshot (`figma-vars.snapshot.json`) — run Phase 1 first if stale.
+
+## How it works
+
+1. Reads the DS snapshot (ground truth of all DS tokens).
+2. Calls Figma REST API `/v1/files/:consumerKey/variables/local` — **no edit access required**.
+3. Classifies collections by `remote` flag:
+   - `remote: false` → local collection (consumer's brand overrides)
+   - `remote: true`  → linked library collection (the DS)
+4. Diffs DS snapshot tokens against the consumer's local collection.
+5. Reports: tokens missing from the consumer's local collection, grouped by component.
+
+## Output
+
+- Console report grouped by component prefix with count of missing tokens.
+- `consumer-audit-report.json` at project root (gitignored) — full machine-readable output.
+
+## Interpreting results
+
+| Finding | Meaning | Action |
+|---|---|---|
+| Token in DS, missing in consumer local | DS added this token after consumer was set up | Add to consumer's local collection with brand value, OR leave if DS default is acceptable |
+| Token in DS, present in consumer local | Consumer has explicitly overridden it | No action — intentional brand customization |
+| No remote collections found | Consumer may not use this DS as a library, OR token has no FIGMA_TOKEN access to the linked lib | Verify in Figma → Assets → Libraries; check token scope |
+
+## ⚠️ Hard rule: never infer library linkage from component names
+
+**NEVER use `get_metadata` page structure or component/instance names to determine whether a consumer file uses the DS library.** Consumer files wrap DS instances in local components — wrapper names (`list-item`, `button-primary`, `card`) reveal nothing about library linkage. A consumer file's components can have the same names as DS components while being completely independent.
+
+The ONLY authoritative signals for library linkage are:
+1. `collection.remote === true` in the Figma Variables API response — used by `consumer-audit.mjs`
+2. `instance.mainComponent.remote === true` in plugin API — requires edit access via `use_figma`
+
+If `use_figma` is attempted but returns an edit-access error, **do not fall back to inferring linkage from `get_metadata`**. Fall back to the REST API approach (`consumer-audit.mjs`) instead.
+
+---
+
 ## Webhook Automation
 
 Once deployed, the webhook server auto-triggers parity checks on every DS change without manual invocation:
