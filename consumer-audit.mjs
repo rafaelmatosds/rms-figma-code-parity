@@ -786,11 +786,11 @@ table{width:100%;border-collapse:collapse}
 .ghost-thead{visibility:hidden}
 .nav-thead-wrap{overflow-x:hidden}
 .nav-thead-table{width:100%;border-collapse:collapse;table-layout:fixed}
-thead th,#nav-thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
+thead th,.nav-thead-table th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
 th.th-group{background:#2d2d44;color:#a5b4fc;font-size:10px;font-weight:700;letter-spacing:.6px;text-align:center;border-bottom:1px solid #3d3d5c}
 th.th-group-pb{background:#312e3f;color:#c4b5fd}
 th.th-mode{min-width:180px}
-.ghost-thead th:first-child,#nav-thead th:first-child{min-width:280px}
+.ghost-thead th:first-child,.nav-thead-table th:first-child{min-width:280px}
 tr.tr{border-bottom:1px solid #f0f2f5}
 tr.tr:hover{background:#fafbff}
 tr.s-STALE .tname code{color:#c0c4cc}
@@ -843,7 +843,7 @@ tr.hidden{display:none}
     <input type="text" id="q" placeholder="Search token…" oninput="apply()">
   </div>
   <div class="nav-thead-wrap" id="nav-thead-wrap">
-    <table class="nav-thead-table" id="nav-thead-table"><thead id="nav-thead"></thead></table>
+    <table class="nav-thead-table" id="nav-thead-table"></table>
   </div>
 </div>
 <div id="main">${sections}</div>
@@ -902,13 +902,11 @@ function apply(){
 }
 function injectThead(){
   const sec=document.querySelector('.col-section.active');
-  const navTheadEl=document.getElementById('nav-thead');
-  if(!sec||!navTheadEl)return;
-  const tmp=document.createElement('div');
-  tmp.innerHTML=decodeURIComponent(sec.dataset.thead||'');
-  const newThead=tmp.querySelector('thead');
-  if(newThead)navTheadEl.replaceWith(newThead);
-  syncColWidths();
+  const wrap=document.getElementById('nav-thead-wrap');
+  if(!sec||!wrap)return;
+  // Replace table content — simpler than replaceWith (preserves table element)
+  wrap.querySelector('table').innerHTML=decodeURIComponent(sec.dataset.thead||'');
+  requestAnimationFrame(syncColWidths);
   bindTwScroll();
 }
 function syncColWidths(){
@@ -927,7 +925,7 @@ function bindTwScroll(){
   if(!tw||!wrap)return;
   tw.addEventListener('scroll',()=>{wrap.scrollLeft=tw.scrollLeft;},{passive:true});
 }
-window.addEventListener('resize',syncColWidths,{passive:true});
+window.addEventListener('resize',()=>requestAnimationFrame(syncColWidths),{passive:true});
 // init
 document.addEventListener('DOMContentLoaded',()=>{
   const first=document.querySelector('.col-section');
