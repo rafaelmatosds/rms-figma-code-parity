@@ -555,62 +555,88 @@ if (REPORT_HTML) {
     }
 
     sections += `
-<div class="col-section" data-col="${colName}" id="col-${colName.replace(/\s+/g,'_')}">
-  <div class="col-header">
-    <span class="col-tag">${colTag}</span>
-    <strong>${colName}</strong>
-    <span class="col-count">${colRows.length} tokens</span>
-    <span class="col-modes">Modes: ${colModes.map(([,n])=>n).join(', ')}</span>
+<div class="col-section" data-col="${colName}">
+  <div class="col-meta">
+    <span class="col-tag${isRemote?'':' local'}">${colTag}</span>
+    <span><b>${colName === '—' ? 'DS Pending' : colName}</b> &nbsp;·&nbsp; ${colRows.length} tokens</span>
+    <span>Modes: ${colModes.map(([,n])=>n).join(', ')}</span>
   </div>
   <div class="tw"><table>
     <thead><tr><th>Token</th><th>Type</th>${modeThs}<th>Status</th></tr></thead>
-    <tbody class="col-tbody">${tbody2}</tbody>
+    <tbody>${tbody2}</tbody>
   </table></div>
 </div>`;
   }
 
-  const collectionNav = collectionOrder.map(n =>
-    `<a href="#col-${n.replace(/\s+/g,'_')}" class="col-link">${n} (${hRows.filter(r=>r.colName===n).length})</a>`
-  ).join('');
+  // Build per-collection status counts for tab badges
+  const colStats = {};
+  for (const n of collectionOrder) {
+    const rows = hRows.filter(r=>r.colName===n);
+    colStats[n] = {
+      total: rows.length,
+      s: rows.filter(r=>r.status==='SYNCED').length,
+      p: rows.filter(r=>r.status==='PENDING').length,
+      t: rows.filter(r=>r.status==='STALE').length,
+      l: rows.filter(r=>r.status==='LOCAL').length,
+    };
+  }
+
+  const firstCol = collectionOrder[0] ?? '';
+  const tabsHtml = collectionOrder.map((n,i) => {
+    const st = colStats[n];
+    const tid = `tab-${n.replace(/[\s()]/g,'_')}`;
+    // dominant status label for the tab sub-label
+    const sub = st.l === st.total ? '📁 Local'
+      : st.s === st.total ? '✅ All synced'
+      : st.p > 0 ? `⏳ ${st.p} pending`
+      : st.t > 0 ? `🗑 ${st.t} stale` : '';
+    return `<button class="tab${i===0?' active':''}" data-col="${n}" id="${tid}" onclick="switchTab('${n}',this)">
+  <span class="tab-name">${n === '—' ? 'DS Pending' : n}</span>
+  <span class="tab-count">${st.total}</span>
+  ${sub ? `<span class="tab-sub">${sub}</span>` : ''}
+</button>`;
+  }).join('');
 
   const html=`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <title>Token Parity — ${CONSUMER_KEY}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#111;background:#fff}
-.top{padding:20px 28px 14px;border-bottom:1px solid #e4e7ec}
-h1{font-size:18px;font-weight:700;margin-bottom:4px}
-.meta{font-size:11px;color:#666}
-.sum{display:flex;gap:12px;padding:14px 28px;background:#f7f8fa;border-bottom:1px solid #e4e7ec;flex-wrap:wrap}
-.stat{padding:10px 20px;border-radius:8px;text-align:center;min-width:80px}
-.stat .n{font-size:24px;font-weight:800;line-height:1}
-.stat .l{font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
-.stat.s{background:#dcfce7;color:#166534}.stat.p{background:#fef9c3;color:#854d0e}
-.stat.st{background:#fee2e2;color:#991b1b}.stat.tot{background:#e5e7eb;color:#111}.stat.lo{background:#ede9fe;color:#5b21b6}
-.legend{padding:8px 28px;font-size:10px;color:#777;border-bottom:1px solid #e4e7ec;display:flex;gap:16px;flex-wrap:wrap}
-.bar{padding:10px 28px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #e4e7ec;position:sticky;top:0;background:#fff;z-index:20;flex-wrap:wrap}
-.btn{padding:4px 12px;border:1px solid #d1d5db;border-radius:20px;background:#fff;cursor:pointer;font-size:11px;color:#374151}
-.btn:hover{background:#f3f4f6}.btn.on{background:#111;color:#fff;border-color:#111}
-input{border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px;width:220px;outline:none}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#111;background:#fff;height:100vh;display:flex;flex-direction:column}
+.top{padding:16px 28px 12px;border-bottom:1px solid #e4e7ec;flex-shrink:0}
+h1{font-size:17px;font-weight:700;margin-bottom:3px}
+.meta{font-size:11px;color:#777}
+/* ── Tab bar ── */
+.tabs{display:flex;gap:0;border-bottom:2px solid #e4e7ec;background:#f8f9fc;flex-shrink:0;overflow-x:auto}
+.tab{display:flex;flex-direction:column;align-items:flex-start;padding:10px 18px 8px;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;background:none;cursor:pointer;min-width:0;flex-shrink:0;transition:border-color .15s}
+.tab:hover{background:#f0f2f7}
+.tab.active{border-bottom-color:#6366f1;background:#fff}
+.tab-name{font-size:12px;font-weight:600;color:#374151;white-space:nowrap}
+.tab.active .tab-name{color:#4f46e5}
+.tab-count{font-size:18px;font-weight:800;color:#111;line-height:1.1;margin-top:1px}
+.tab.active .tab-count{color:#4f46e5}
+.tab-sub{font-size:10px;color:#888;margin-top:2px;white-space:nowrap}
+/* ── Toolbar ── */
+.toolbar{display:flex;gap:8px;align-items:center;padding:8px 20px;border-bottom:1px solid #e4e7ec;background:#fff;flex-shrink:0;flex-wrap:wrap}
+.fbtn{padding:3px 10px;border:1px solid #d1d5db;border-radius:14px;background:#fff;cursor:pointer;font-size:11px;color:#374151;white-space:nowrap}
+.fbtn:hover{background:#f3f4f6}.fbtn.on{background:#4f46e5;color:#fff;border-color:#4f46e5}
+input{border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px;width:200px;outline:none;margin-left:auto}
 input:focus{border-color:#6366f1}
-.col-nav{padding:8px 28px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #e4e7ec;background:#fafbff}
-.col-link{font-size:11px;color:#5b21b6;text-decoration:none;padding:2px 8px;border:1px solid #ede9fe;border-radius:12px;background:#fff}
-.col-link:hover{background:#ede9fe}
-.col-section{border-bottom:2px solid #e4e7ec;margin-bottom:0}
-.col-header{padding:10px 28px;background:#f8f9fc;border-bottom:1px solid #e4e7ec;display:flex;align-items:center;gap:10px}
-.col-tag{font-size:10px;padding:2px 8px;border-radius:10px;background:#e0e7ff;color:#3730a3;font-weight:600}
-.col-header strong{font-size:13px}
-.col-count{font-size:11px;color:#888}
-.col-modes{font-size:10px;color:#666;margin-left:auto;font-style:italic}
-.tw{overflow-x:auto}
+.col-info{font-size:10px;color:#888;margin-left:4px}
+/* ── Collection panel ── */
+.col-section{display:none;flex-direction:column;overflow:hidden;flex:1}
+.col-section.active{display:flex}
+.col-meta{padding:6px 20px;background:#f8f9fc;border-bottom:1px solid #e4e7ec;font-size:10px;color:#666;display:flex;gap:14px;flex-shrink:0}
+.col-tag{padding:1px 7px;border-radius:8px;background:#e0e7ff;color:#3730a3;font-weight:600;font-size:10px}
+.col-tag.local{background:#ede9fe;color:#5b21b6}
+.tw{overflow:auto;flex:1}
 table{width:100%;border-collapse:collapse}
-thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
-th.th-mode{min-width:160px}
-th:first-child{min-width:300px}
+thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:5}
+th.th-mode{min-width:200px}
+th:first-child{min-width:280px}
 tr.tr{border-bottom:1px solid #f0f2f5}
 tr.tr:hover{background:#fafbff}
-tr.s-STALE .tname code{color:#bbb}
+tr.s-STALE .tname code{color:#c0c4cc}
 tr.gr td{background:#f0f2f7;padding:5px 10px;border-top:2px solid #d0d7de}
 .gname{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-right:10px;color:#374151}
 .gp{font-size:10px;margin-right:5px}.gp.s{color:#166534}.gp.p{color:#854d0e}.gp.t{color:#991b1b}.gp.l{color:#5b21b6}
@@ -630,55 +656,67 @@ td.empty{color:#ddd;font-size:11px;padding:4px 10px}
 .tp-COLOR{background:#dbeafe;color:#1e40af}.tp-FLOAT{background:#ede9fe;color:#5b21b6}
 .tp-BOOLEAN{background:#fef3c7;color:#92400e}.tp-STRING{background:#dcfce7;color:#166534}.tp-—{background:#f3f4f6;color:#6b7280}
 tr.hidden{display:none}
-.col-section.hidden{display:none}
+.empty-msg{padding:40px;text-align:center;color:#aaa;font-size:13px}
 </style></head><body>
-<div class="top"><h1>Token Parity — BancoBAI × INNOVA DS</h1>
-<div class="meta">DS snapshot: ${snapDate} &nbsp;·&nbsp; Generated: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; Consumer: ${CONSUMER_KEY}</div></div>
-<div class="sum">
-  <div class="stat s"><div class="n">${nS}</div><div class="l">✅ Synced</div></div>
-  <div class="stat p"><div class="n">${nP}</div><div class="l">⏳ Pending</div></div>
-  <div class="stat st"><div class="n">${nT}</div><div class="l">🗑 Stale</div></div>
-  <div class="stat lo"><div class="n">${nL}</div><div class="l">📁 Local</div></div>
-  <div class="stat tot"><div class="n">${hRows.length}</div><div class="l">Total</div></div>
+<div class="top">
+  <h1>Token Parity — BancoBAI × INNOVA DS</h1>
+  <div class="meta">DS snapshot: ${snapDate} &nbsp;·&nbsp; Generated: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; ${hRows.length} tokens across ${collectionOrder.length} collections</div>
 </div>
-<div class="legend">
-  <span>✅ <b>Synced</b> — in DS and consumer</span>
-  <span>⏳ <b>Pending</b> — in DS, consumer must accept library update (values = DS defaults)</span>
-  <span>🗑 <b>Stale</b> — removed from DS, still in consumer's copy</span>
-  <span>📁 <b>Local</b> — consumer's own local collection (brand overrides)</span>
-</div>
-<div class="bar">
-  <button class="btn on" onclick="setF('ALL',this)">All</button>
-  <button class="btn" onclick="setF('SYNCED',this)">✅ Synced (${nS})</button>
-  <button class="btn" onclick="setF('PENDING',this)">⏳ Pending (${nP})</button>
-  <button class="btn" onclick="setF('STALE',this)">🗑 Stale (${nT})</button>
-  <button class="btn" onclick="setF('LOCAL',this)">📁 Local (${nL})</button>
+<div class="tabs">${tabsHtml}</div>
+<div class="toolbar">
+  <button class="fbtn on" onclick="setF('ALL',this)">All</button>
+  <button class="fbtn" onclick="setF('SYNCED',this)">✅ Synced</button>
+  <button class="fbtn" onclick="setF('PENDING',this)">⏳ Pending</button>
+  <button class="fbtn" onclick="setF('STALE',this)">🗑 Stale</button>
+  <button class="fbtn" onclick="setF('LOCAL',this)">📁 Local</button>
+  <span class="col-info" id="col-info"></span>
   <input type="text" id="q" placeholder="Search token…" oninput="apply()">
 </div>
-<div class="col-nav">${collectionNav}</div>
 <div id="main">${sections}</div>
 <script>
-let af='ALL';
-function setF(f,btn){af=f;document.querySelectorAll('.btn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');apply();}
+let af='ALL', activeCol='${firstCol}';
+function switchTab(col, btn){
+  activeCol=col;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.col-section').forEach(s=>s.classList.remove('active'));
+  const sec=document.querySelector('.col-section[data-col="'+col+'"]');
+  if(sec)sec.classList.add('active');
+  document.getElementById('q').value='';
+  af='ALL';
+  document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll('.fbtn')[0].classList.add('on');
+  apply();
+}
+function setF(f,btn){af=f;document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');apply();}
 function apply(){
   const q=document.getElementById('q').value.toLowerCase();
-  document.querySelectorAll('.col-section').forEach(sec=>{
-    const rows=sec.querySelectorAll('tr.tr');
-    const gv={};
-    rows.forEach(r=>{
-      const show=(af==='ALL'||r.dataset.status===af)&&(!q||r.querySelector('.tname code').textContent.toLowerCase().includes(q));
-      r.classList.toggle('hidden',!show);
-      if(show)gv[r.closest('tbody').id||'x']=true;
-    });
-    sec.querySelectorAll('tr.gr').forEach(g=>{
-      let sib=g.nextElementSibling,vis=false;
-      while(sib&&!sib.classList.contains('gr')){if(!sib.classList.contains('hidden'))vis=true;sib=sib.nextElementSibling;}
-      g.classList.toggle('hidden',!vis);
-    });
-    const anyVisible=[...rows].some(r=>!r.classList.contains('hidden'));
-    sec.classList.toggle('hidden',!anyVisible);
+  const sec=document.querySelector('.col-section[data-col="'+activeCol+'"]');
+  if(!sec)return;
+  const rows=sec.querySelectorAll('tr.tr');
+  let vis=0;
+  rows.forEach(r=>{
+    const show=(af==='ALL'||r.dataset.status===af)&&(!q||r.querySelector('.tname code').textContent.toLowerCase().includes(q));
+    r.classList.toggle('hidden',!show);
+    if(show)vis++;
   });
+  sec.querySelectorAll('tr.gr').forEach(g=>{
+    let sib=g.nextElementSibling,hasVis=false;
+    while(sib&&!sib.classList.contains('gr')){if(!sib.classList.contains('hidden'))hasVis=true;sib=sib.nextElementSibling;}
+    g.classList.toggle('hidden',!hasVis);
+  });
+  let em=sec.querySelector('.empty-msg');
+  if(!em){em=document.createElement('div');em.className='empty-msg';sec.querySelector('.tw').appendChild(em);}
+  em.style.display=vis?'none':'block';
+  em.textContent=vis?'':'No tokens match this filter.';
+  document.getElementById('col-info').textContent=vis+' token'+(vis===1?'':'s')+' shown';
 }
+// init
+document.addEventListener('DOMContentLoaded',()=>{
+  const first=document.querySelector('.col-section');
+  if(first)first.classList.add('active');
+  apply();
+});
 </script></body></html>`;
 
   const htmlPath = REPORT_HTML.startsWith('/') ? REPORT_HTML : join(ROOT, REPORT_HTML);
