@@ -246,7 +246,11 @@ if (REPORT_MD) {
       const alias = byId[val.id];
       return alias ? `→ ${alias.name}` : '(alias→ext)';
     }
-    if (typeof val === 'object' && 'r' in val) return toHex(val);
+    if (typeof val === 'object' && 'r' in val) {
+      const h = toHex(val);
+      const a = val.a ?? 1;
+      return a < 0.999 ? `${h} @${Math.round(a*100)}%` : h;
+    }
     if (typeof val === 'number')  return String(Math.round(val * 100) / 100);
     if (typeof val === 'boolean') return val ? 'true' : 'false';
     if (typeof val === 'string')  return val;
@@ -343,7 +347,13 @@ if (REPORT_HTML) {
     if(typeof val==='object'&&val.type==='VARIABLE_ALIAS'){
       const a=byId[val.id]; return a?{display:`→ ${a.name}`,hex:null}:{display:'(ext)',hex:null};
     }
-    if(typeof val==='object'&&'r' in val){ const h=_toHex(val); return {display:h,hex:h}; }
+    if(typeof val==='object'&&'r' in val){
+      const h=_toHex(val);
+      const alpha = val.a??1;
+      const hasOpacity = alpha < 0.999;
+      const opacityPct = hasOpacity ? Math.round(alpha*100) : null;
+      return {display:h, hex:h, alpha, opacityPct};
+    }
     if(typeof val==='number') return {display:String(Math.round(val*100)/100),hex:null};
     if(typeof val==='boolean') return {display:val?'true':'false',hex:null};
     if(typeof val==='string') return {display:val,hex:null};
@@ -433,10 +443,13 @@ if (REPORT_HTML) {
   const grouped = {};
   for (const r of hRows){ if(!grouped[r.group])grouped[r.group]=[]; grouped[r.group].push(r); }
 
-  function sw(hex,fromDS){
+  function sw(hex,fromDS,alpha){
     if(!hex) return '';
     const b=fromDS?'2px dashed #888':'1px solid rgba(0,0,0,.15)';
-    return `<span class="sw" style="background:${hex};border:${b}"></span>`;
+    const bg = (alpha!=null&&alpha<0.999)
+      ? `rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${alpha})`
+      : hex;
+    return `<span class="sw" style="background:${bg};border:${b}"></span>`;
   }
   function badge(s){
     const m={SYNCED:['synced','✅ Synced'],PENDING:['pending','⏳ Pending'],STALE:['stale','🗑 Stale'],LOCAL:['local','📁 Local']};
@@ -450,7 +463,7 @@ if (REPORT_HTML) {
     const colspan = span > 1 ? ` colspan="${span}"` : '';
     if(!v||v.display==='—') return `<td class="val empty"${colspan}>—</td>`;
     const inner = v.hex
-      ? `${sw(v.hex,v.fromDS)}<code class="hex">${v.display}</code>`
+      ? `${sw(v.hex,v.fromDS,v.alpha)}<code class="hex">${v.display}</code>${v.opacityPct!=null?`<span class="opacity-badge">${v.opacityPct}%</span>`:''}`
       : `<code class="noncolor">${v.display}</code>`;
     return `<td class="val"${colspan}>${inner}</td>`;
   }
@@ -559,6 +572,7 @@ td.val{white-space:nowrap;padding:4px 10px}
 td.val .sw{display:inline-block;width:13px;height:13px;border-radius:3px;vertical-align:middle;margin-right:4px;position:relative;top:-1px}
 code.hex{font-size:11px;color:#1e1e2e;vertical-align:middle}
 code.noncolor{font-size:11px;color:#444;background:#f4f4f8;border:1px solid #e0e0ea;border-radius:3px;padding:1px 5px}
+.opacity-badge{font-size:10px;color:#6b21a8;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:4px;padding:1px 5px;margin-left:4px;vertical-align:middle;font-weight:500}
 td.empty{color:#ddd;font-size:11px;padding:4px 10px}
 .badge{padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
 .badge.synced{background:#dcfce7;color:#166534}.badge.pending{background:#fef9c3;color:#854d0e}
