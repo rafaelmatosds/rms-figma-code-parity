@@ -100,12 +100,22 @@ async function fetchFigmaFileName(fileKey, token) {
   if (!fileKey || !token) return null;
   try {
     const res = await fetch(
-      `https://api.figma.com/v1/files/${fileKey}?depth=0`,
+      `https://api.figma.com/v1/files/${fileKey}`,
       { headers: { 'X-Figma-Token': token } }
     );
     if (!res.ok) return null;
-    const json = await res.json();
-    return json.name ?? null;
+    // Stream only the first chunk — the "name" field is always near the top
+    // of the response, so we never need to download the full document.
+    const reader = res.body.getReader();
+    let text = '';
+    while (text.length < 2000) {
+      const { done, value } = await reader.read();
+      if (value) text += new TextDecoder().decode(value);
+      if (done) break;
+    }
+    reader.cancel().catch(() => {});
+    const m = text.match(/"name"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    return m ? m[1].replace(/\\"/g, '"') : null;
   } catch { return null; }
 }
 
