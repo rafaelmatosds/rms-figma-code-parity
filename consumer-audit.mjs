@@ -721,11 +721,12 @@ if (REPORT_HTML) {
 
   const html=`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
-<title>Token Parity — ${consumerFileName} × ${dsFileName}</title>
+<title>Token Parity — ${dsFileName} × ${consumerFileName}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#111;background:#fff}
 .top{padding:16px 28px 10px;border-bottom:1px solid #e4e7ec;flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.flink{color:inherit;text-decoration:none;border-bottom:1px solid #9ca3af}.flink:hover{border-bottom-color:#111}
 .top-title h1{font-size:17px;font-weight:700;margin-bottom:3px}
 .top-title .meta{font-size:11px;color:#777}
 .sum{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
@@ -804,8 +805,8 @@ tr.hidden{display:none}
 </style></head><body>
 <div class="top">
   <div class="top-title">
-    <h1>Token Parity — ${consumerFileName} × ${dsFileName}</h1>
-    <div class="meta">DS Figma file: ${dsFileName} (${snapDate}) &nbsp;·&nbsp; Consumer Figma file: ${consumerFileName} (${new Date().toISOString().slice(0,10)}) &nbsp;·&nbsp; ${hRows.length} tokens · ${collectionOrder.length} collections</div>
+    <h1>Token Parity — ${dsFileName} × ${consumerFileName}</h1>
+    <div class="meta"><a href="https://www.figma.com/design/${DS_FILE_KEY}" target="_blank" rel="noopener" class="flink">DS Figma file: ${dsFileName}</a> (${snapDate}) &nbsp;·&nbsp; <a href="https://www.figma.com/design/${CONSUMER_KEY}" target="_blank" rel="noopener" class="flink">Consumer Figma file: ${consumerFileName}</a> (${new Date().toISOString().slice(0,10)}) &nbsp;·&nbsp; ${hRows.length} tokens · ${collectionOrder.length} collections</div>
   </div>
   <div class="sum">
     <div class="stat s"><div class="n">${nS}</div><div class="l"><span class="dot s"></span>Synced</div><div class="d">In DS & consumer</div></div>
