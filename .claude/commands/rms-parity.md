@@ -861,12 +861,12 @@ Run from the **DS project root** (where `ds-config.json` and `figma-vars.snapsho
 |---|---|
 | *(none)* | Console report grouped by component with counts |
 | `--report-md <file>` | Full master token table (markdown) — all types, all modes |
-| `--report-html <file>` | Interactive HTML — filterable by status, searchable, color swatches, grouped by component |
+| `--report-html <file>` | Interactive HTML — all collections, per-collection mode columns, filterable by status, searchable, color swatches |
 | *(always)* | `consumer-audit-report.json` — machine-readable lists for CI integration |
 
 ### Variable value display
 
-All variable types are resolved and shown in both `--report-md` and `--report-html`:
+All variable types are resolved:
 
 | Figma type | Display |
 |---|---|
@@ -876,7 +876,7 @@ All variable types are resolved and shown in both `--report-md` and `--report-ht
 | STRING | string value |
 | VARIABLE_ALIAS | `→ alias/token/name` (one hop — shows what it aliases) |
 
-Mode columns are derived from the linked DS collection's actual mode names (e.g. `Light`, `Dark`).
+**All collections covered** — the HTML report iterates every collection in the consumer file (Theme, Breakpoint, Radius, Language, Mode Colors, local brand overrides, etc.). Each collection gets its own section with its own mode columns (e.g. Theme → Light/Dark; Breakpoint → Phone/Tablet/Desktop). The status column adds a `📁 Local` badge for consumer-local collections.
 
 **PENDING tokens** show the DS snapshot value with a `*(DS)*` suffix — so you can see what value the consumer will receive once the library update is accepted.
 
@@ -887,6 +887,7 @@ Mode columns are derived from the linked DS collection's actual mode names (e.g.
 | ✅ SYNCED | Token in DS snapshot AND in consumer's linked library | No action needed |
 | ⏳ PENDING UPDATE | Token in DS snapshot but missing from consumer's linked library | Consumer must accept the DS library update in Figma → Assets → Libraries |
 | 🗑 STALE | Token removed from DS, still in consumer's old linked copy | Disappears automatically when consumer accepts library update |
+| 📁 LOCAL | Token belongs to the consumer's own local collection (brand overrides) | No action — these are intentional consumer values |
 | No remote collections found | Consumer may not use this DS as a library, OR `FIGMA_TOKEN` lacks access | Verify in Figma → Assets → Libraries; check token scope |
 
 ## ⚠️ Hard rule: never infer library linkage from component names

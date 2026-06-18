@@ -337,11 +337,6 @@ if (REPORT_MD) {
 
 // ── HTML full token report (--report-html) ────────────────────────────────────
 if (REPORT_HTML) {
-  // Re-use rows already built in the --report-md block if available, otherwise rebuild
-  const _linkedModes = linkedDSCollection.modes ?? [];
-  const _localColObj = localCollections.sort((a,b)=>(b.variableIds?.length??0)-(a.variableIds?.length??0))[0];
-  const _localVarIds = new Set(_localColObj?.variableIds ?? []);
-
   function _toHex(c){ return '#'+['r','g','b'].map(k=>Math.round((c[k]??0)*255).toString(16).padStart(2,'0')).join(''); }
   function _resolveVal(val){
     if(val==null) return {display:'—',hex:null};
@@ -355,45 +350,85 @@ if (REPORT_HTML) {
     return {display:'—',hex:null};
   }
 
-  const _allNames = new Set([
-    ...dsTokenNames,
-    ...[...linkedVarIds].map(id=>byId[id]?.name).filter(n=>n&&!n.startsWith(PRIM_PFX)),
-    ...[...(_localColObj?.variableIds??[])].map(id=>byId[id]?.name).filter(n=>n&&!n.startsWith(PRIM_PFX)),
-  ]);
+  // Build a lookup: variableId → collection
+  const varToCol = new Map();
+  for (const col of consumerCollections)
+    for (const id of (col.variableIds??[]))
+      varToCol.set(id, col);
 
+  // Collect all non-primitive variables across ALL collections
+  const allVars = consumerVariables.filter(v => {
+    const col = varToCol.get(v.id);
+    return col && !v.name.startsWith(PRIM_PFX);
+  });
+
+  // Also add PENDING tokens (in DS snapshot but not in consumer at all)
+  const consumerNames = new Set(allVars.map(v=>v.name));
+  const pendingNames  = [...dsTokenNames].filter(n=>!consumerNames.has(n));
+
+  // Build rows: one per unique (name, collectionId) — a token can appear in multiple collections
   const hRows = [];
-  for (const name of _allNames) {
-    const lv = consumerVariables.find(v=>linkedVarIds.has(v.id)&&v.name===name);
-    const lov= consumerVariables.find(v=>_localVarIds.has(v.id)&&v.name===name);
-    const inDS = dsTokenNames.has(name);
-    const status = inDS && lv ? 'SYNCED' : inDS ? 'PENDING' : 'STALE';
-    const type = (lv??lov)?.resolvedType ?? 'COLOR';
-    const modeVals = {};
-    if (lv || lov) {
-      for (const mode of _linkedModes) {
-        const val = (lv??lov)?.valuesByMode?.[mode.modeId];
-        modeVals[mode.name] = val!==undefined ? _resolveVal(val) : {display:'—',hex:null};
-      }
-      if (!lv && lov && _linkedModes.length===0) {
-        for (const mode of (_localColObj?.modes??[])) {
-          const val = lov.valuesByMode?.[mode.modeId];
-          modeVals[mode.name] = val!==undefined ? _resolveVal(val) : {display:'—',hex:null};
-        }
-      }
-    } else {
-      for (const m of MODES) {
-        const hex = snap.color?.[m.snapshotKey]?.[name];
-        modeVals[m.name] = hex ? {display:hex,hex,fromDS:true} : {display:'(new in DS)',hex:null,fromDS:true};
-      }
-    }
-    hRows.push({name, status, type, modeVals, group: name.split('/').slice(0,2).join('/')});
-  }
-  hRows.sort((a,b)=>a.name.localeCompare(b.name));
 
-  const hModeNames = _linkedModes.length ? _linkedModes.map(m=>m.name) : MODES.map(m=>m.name);
-  const nS = hRows.filter(r=>r.status==='SYNCED').length;
-  const nP = hRows.filter(r=>r.status==='PENDING').length;
-  const nT = hRows.filter(r=>r.status==='STALE').length;
+  for (const v of allVars) {
+    const col = varToCol.get(v.id);
+    const inDSLinked = linkedVarIds.has(v.id);
+    const inDS = dsTokenNames.has(v.name);
+
+    let status;
+    if      (inDS && inDSLinked) status = 'SYNCED';
+    else if (inDS)               status = 'PENDING';
+    else if (!col.remote)        status = 'LOCAL';
+    else                         status = 'STALE';
+
+    const modeVals = {};
+    for (const mode of (col.modes??[])) {
+      const val = v.valuesByMode?.[mode.modeId];
+      modeVals[mode.modeId] = {
+        modeName: mode.name,
+        colName:  col.name,
+        ...(val !== undefined ? _resolveVal(val) : {display:'—',hex:null}),
+      };
+    }
+
+    hRows.push({
+      name:    v.name,
+      colName: col.name,
+      remote:  col.remote,
+      type:    v.resolvedType ?? '—',
+      modeVals,
+      status,
+      group:   v.name.split('/').slice(0,2).join('/'),
+    });
+  }
+
+  // Add PENDING rows (in DS snapshot, not in consumer at all)
+  for (const name of pendingNames) {
+    const modeVals = {};
+    for (const m of MODES) {
+      const hex = snap.color?.[m.snapshotKey]?.[name];
+      // Use a fake modeId key for pending rows
+      modeVals[`ds_${m.snapshotKey}`] = {
+        modeName: m.name, colName: 'DS (not in consumer)',
+        display: hex ?? '(new in DS)', hex: hex??null, fromDS: true,
+      };
+    }
+    hRows.push({ name, colName:'—', remote:true, type:'COLOR', modeVals, status:'PENDING', group: name.split('/').slice(0,2).join('/') });
+  }
+
+  hRows.sort((a,b) => a.name.localeCompare(b.name) || a.colName.localeCompare(b.colName));
+
+  // Collect all unique collections (for per-collection mode columns)
+  const colMap = new Map(); // colName → [unique modes {modeId, modeName}]
+  for (const r of hRows) {
+    if (!colMap.has(r.colName)) colMap.set(r.colName, new Map());
+    for (const [mid, mv] of Object.entries(r.modeVals))
+      colMap.get(r.colName).set(mid, mv.modeName);
+  }
+
+  const nS  = hRows.filter(r=>r.status==='SYNCED').length;
+  const nP  = hRows.filter(r=>r.status==='PENDING').length;
+  const nT  = hRows.filter(r=>r.status==='STALE').length;
+  const nL  = hRows.filter(r=>r.status==='LOCAL').length;
 
   const grouped = {};
   for (const r of hRows){ if(!grouped[r.group])grouped[r.group]=[]; grouped[r.group].push(r); }
@@ -404,38 +439,78 @@ if (REPORT_HTML) {
     return `<span class="sw" style="background:${hex};border:${b}"></span>`;
   }
   function badge(s){
-    const m={SYNCED:['synced','✅ Synced'],PENDING:['pending','⏳ Pending'],STALE:['stale','🗑 Stale']};
+    const m={SYNCED:['synced','✅ Synced'],PENDING:['pending','⏳ Pending'],STALE:['stale','🗑 Stale'],LOCAL:['local','📁 Local']};
     const [cls,lbl]=m[s]??['',''];
     return `<span class="badge ${cls}">${lbl}</span>`;
   }
   function typePill(t){
     return `<span class="tp tp-${t}">${t}</span>`;
   }
-  function valCell(v){
-    if(!v||v.display==='—') return `<td class="val empty">—</td>`;
-    return `<td class="val">${sw(v.hex,v.fromDS)}<code>${v.display}</code></td>`;
+  function valCell(v, span=1){
+    const colspan = span > 1 ? ` colspan="${span}"` : '';
+    if(!v||v.display==='—') return `<td class="val empty"${colspan}>—</td>`;
+    const inner = v.hex
+      ? `${sw(v.hex,v.fromDS)}<code class="hex">${v.display}</code>`
+      : `<code class="noncolor">${v.display}</code>`;
+    return `<td class="val"${colspan}>${inner}</td>`;
   }
 
-  const modeThs = hModeNames.map(m=>`<th class="th-mode">${m}</th>`).join('');
-  let tbody='', lastGroup='';
-  for (const r of hRows){
-    if(r.group!==lastGroup){
-      lastGroup=r.group;
-      const g=grouped[r.group];
-      const gs=g.filter(x=>x.status==='SYNCED').length;
-      const gp=g.filter(x=>x.status==='PENDING').length;
-      const gt=g.filter(x=>x.status==='STALE').length;
-      const pills=[gs?`<span class="gp s">✅ ${gs}</span>`:'',gp?`<span class="gp p">⏳ ${gp}</span>`:'',gt?`<span class="gp t">🗑 ${gt}</span>`:''].filter(Boolean).join('');
-      tbody+=`<tr class="gr" data-group="${r.group}"><td colspan="${2+hModeNames.length+1}"><span class="gname">${r.group}</span>${pills}</td></tr>`;
+  // Build one table per collection group, each with its own mode columns
+  // Collect all unique collections in order of occurrence
+  const collectionOrder = [...colMap.keys()];
+
+  // Build per-collection section tables
+  let sections = '';
+  for (const colName of collectionOrder) {
+    const colModes = [...colMap.get(colName).entries()]; // [[modeId, modeName], ...]
+    const colRows  = hRows.filter(r => r.colName === colName);
+    if (!colRows.length) continue;
+
+    const isRemote = colRows[0].remote;
+    const colTag   = isRemote ? '🔗 Library' : '📁 Local';
+    const modeThs  = colModes.map(([,mn])=>`<th class="th-mode">${mn}</th>`).join('');
+    const nCols    = 2 + colModes.length + 1; // token + type + modes + status
+
+    let tbody2 = '';
+    let lastGroup = '';
+    for (const r of colRows) {
+      if (r.group !== lastGroup) {
+        lastGroup = r.group;
+        const g = colRows.filter(x=>x.group===r.group);
+        const gs=g.filter(x=>x.status==='SYNCED').length;
+        const gp=g.filter(x=>x.status==='PENDING').length;
+        const gt=g.filter(x=>x.status==='STALE').length;
+        const gl=g.filter(x=>x.status==='LOCAL').length;
+        const pills=[gs?`<span class="gp s">✅ ${gs}</span>`:'',gp?`<span class="gp p">⏳ ${gp}</span>`:'',gt?`<span class="gp t">🗑 ${gt}</span>`:'',gl?`<span class="gp l">📁 ${gl}</span>`:''].filter(Boolean).join('');
+        tbody2 += `<tr class="gr"><td colspan="${nCols}"><span class="gname">${r.group}</span>${pills}</td></tr>`;
+      }
+      const mCells = colModes.map(([mid])=>valCell(r.modeVals[mid])).join('');
+      tbody2 += `<tr class="tr s-${r.status}" data-status="${r.status}" data-col="${colName}">
+        <td class="tname"><code>${r.name}</code></td>
+        <td class="ttype">${typePill(r.type)}</td>
+        ${mCells}
+        <td class="tst">${badge(r.status)}</td>
+      </tr>`;
     }
-    const mCells=hModeNames.map(m=>valCell(r.modeVals[m])).join('');
-    tbody+=`<tr class="tr s-${r.status}" data-status="${r.status}" data-group="${r.group}">
-      <td class="tname"><code>${r.name}</code></td>
-      <td class="ttype">${typePill(r.type)}</td>
-      ${mCells}
-      <td class="tst">${badge(r.status)}</td>
-    </tr>`;
+
+    sections += `
+<div class="col-section" data-col="${colName}" id="col-${colName.replace(/\s+/g,'_')}">
+  <div class="col-header">
+    <span class="col-tag">${colTag}</span>
+    <strong>${colName}</strong>
+    <span class="col-count">${colRows.length} tokens</span>
+    <span class="col-modes">Modes: ${colModes.map(([,n])=>n).join(', ')}</span>
+  </div>
+  <div class="tw"><table>
+    <thead><tr><th>Token</th><th>Type</th>${modeThs}<th>Status</th></tr></thead>
+    <tbody class="col-tbody">${tbody2}</tbody>
+  </table></div>
+</div>`;
   }
+
+  const collectionNav = collectionOrder.map(n =>
+    `<a href="#col-${n.replace(/\s+/g,'_')}" class="col-link">${n} (${hRows.filter(r=>r.colName===n).length})</a>`
+  ).join('');
 
   const html=`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
@@ -451,36 +526,48 @@ h1{font-size:18px;font-weight:700;margin-bottom:4px}
 .stat .n{font-size:24px;font-weight:800;line-height:1}
 .stat .l{font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
 .stat.s{background:#dcfce7;color:#166534}.stat.p{background:#fef9c3;color:#854d0e}
-.stat.st{background:#fee2e2;color:#991b1b}.stat.tot{background:#e5e7eb;color:#111}
+.stat.st{background:#fee2e2;color:#991b1b}.stat.tot{background:#e5e7eb;color:#111}.stat.lo{background:#ede9fe;color:#5b21b6}
 .legend{padding:8px 28px;font-size:10px;color:#777;border-bottom:1px solid #e4e7ec;display:flex;gap:16px;flex-wrap:wrap}
-.bar{padding:10px 28px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #e4e7ec;position:sticky;top:0;background:#fff;z-index:20}
+.bar{padding:10px 28px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #e4e7ec;position:sticky;top:0;background:#fff;z-index:20;flex-wrap:wrap}
 .btn{padding:4px 12px;border:1px solid #d1d5db;border-radius:20px;background:#fff;cursor:pointer;font-size:11px;color:#374151}
 .btn:hover{background:#f3f4f6}.btn.on{background:#111;color:#fff;border-color:#111}
 input{border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px;width:220px;outline:none}
 input:focus{border-color:#6366f1}
+.col-nav{padding:8px 28px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #e4e7ec;background:#fafbff}
+.col-link{font-size:11px;color:#5b21b6;text-decoration:none;padding:2px 8px;border:1px solid #ede9fe;border-radius:12px;background:#fff}
+.col-link:hover{background:#ede9fe}
+.col-section{border-bottom:2px solid #e4e7ec;margin-bottom:0}
+.col-header{padding:10px 28px;background:#f8f9fc;border-bottom:1px solid #e4e7ec;display:flex;align-items:center;gap:10px}
+.col-tag{font-size:10px;padding:2px 8px;border-radius:10px;background:#e0e7ff;color:#3730a3;font-weight:600}
+.col-header strong{font-size:13px}
+.col-count{font-size:11px;color:#888}
+.col-modes{font-size:10px;color:#666;margin-left:auto;font-style:italic}
 .tw{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
-thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:8px 10px;text-align:left;white-space:nowrap;position:sticky;top:43px;z-index:10}
-th.th-mode{min-width:150px}
-th:first-child{min-width:320px}
+thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
+th.th-mode{min-width:160px}
+th:first-child{min-width:300px}
 tr.tr{border-bottom:1px solid #f0f2f5}
 tr.tr:hover{background:#fafbff}
 tr.s-STALE .tname code{color:#bbb}
-tr.gr td{background:#f0f2f7;padding:6px 10px 5px;border-top:2px solid #d0d7de}
-.gname{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-right:10px;color:#374151}
-.gp{font-size:10px;margin-right:6px}.gp.s{color:#166534}.gp.p{color:#854d0e}.gp.t{color:#991b1b}
-td{padding:5px 10px;vertical-align:middle}
+tr.gr td{background:#f0f2f7;padding:5px 10px;border-top:2px solid #d0d7de}
+.gname{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-right:10px;color:#374151}
+.gp{font-size:10px;margin-right:5px}.gp.s{color:#166534}.gp.p{color:#854d0e}.gp.t{color:#991b1b}.gp.l{color:#5b21b6}
+td{padding:4px 10px;vertical-align:middle}
 td.tname code{font-size:11px;word-break:break-all}
-td.val{white-space:nowrap;display:flex;align-items:center;gap:5px;padding-top:6px;padding-bottom:6px}
-td.val code{font-size:11px;color:#1e1e2e}
-td.empty{color:#ccc;font-size:11px}
-.sw{display:inline-block;width:14px;height:14px;border-radius:3px;flex-shrink:0}
-.badge{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
-.badge.synced{background:#dcfce7;color:#166534}.badge.pending{background:#fef9c3;color:#854d0e}.badge.stale{background:#fee2e2;color:#991b1b}
-.tp{padding:1px 6px;border-radius:4px;font-size:10px;font-weight:500}
+td.val{white-space:nowrap;padding:4px 10px}
+td.val .sw{display:inline-block;width:13px;height:13px;border-radius:3px;vertical-align:middle;margin-right:4px;position:relative;top:-1px}
+code.hex{font-size:11px;color:#1e1e2e;vertical-align:middle}
+code.noncolor{font-size:11px;color:#444;background:#f4f4f8;border:1px solid #e0e0ea;border-radius:3px;padding:1px 5px}
+td.empty{color:#ddd;font-size:11px;padding:4px 10px}
+.badge{padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
+.badge.synced{background:#dcfce7;color:#166534}.badge.pending{background:#fef9c3;color:#854d0e}
+.badge.stale{background:#fee2e2;color:#991b1b}.badge.local{background:#ede9fe;color:#5b21b6}
+.tp{padding:1px 5px;border-radius:3px;font-size:10px;font-weight:500}
 .tp-COLOR{background:#dbeafe;color:#1e40af}.tp-FLOAT{background:#ede9fe;color:#5b21b6}
 .tp-BOOLEAN{background:#fef3c7;color:#92400e}.tp-STRING{background:#dcfce7;color:#166534}.tp-—{background:#f3f4f6;color:#6b7280}
 tr.hidden{display:none}
+.col-section.hidden{display:none}
 </style></head><body>
 <div class="top"><h1>Token Parity — BancoBAI × INNOVA DS</h1>
 <div class="meta">DS snapshot: ${snapDate} &nbsp;·&nbsp; Generated: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; Consumer: ${CONSUMER_KEY}</div></div>
@@ -488,42 +575,52 @@ tr.hidden{display:none}
   <div class="stat s"><div class="n">${nS}</div><div class="l">✅ Synced</div></div>
   <div class="stat p"><div class="n">${nP}</div><div class="l">⏳ Pending</div></div>
   <div class="stat st"><div class="n">${nT}</div><div class="l">🗑 Stale</div></div>
+  <div class="stat lo"><div class="n">${nL}</div><div class="l">📁 Local</div></div>
   <div class="stat tot"><div class="n">${hRows.length}</div><div class="l">Total</div></div>
 </div>
 <div class="legend">
-  <span>✅ <b>Synced</b> — in DS and consumer linked library</span>
-  <span>⏳ <b>Pending</b> — added to DS; values shown are DS defaults (consumer must accept library update)</span>
-  <span>🗑 <b>Stale</b> — removed from DS, still in consumer's old copy (cleared on library update)</span>
-  <span>Dashed swatch = DS value not yet in consumer</span>
+  <span>✅ <b>Synced</b> — in DS and consumer</span>
+  <span>⏳ <b>Pending</b> — in DS, consumer must accept library update (values = DS defaults)</span>
+  <span>🗑 <b>Stale</b> — removed from DS, still in consumer's copy</span>
+  <span>📁 <b>Local</b> — consumer's own local collection (brand overrides)</span>
 </div>
 <div class="bar">
-  <button class="btn on" onclick="setF('ALL',this)">All (${hRows.length})</button>
+  <button class="btn on" onclick="setF('ALL',this)">All</button>
   <button class="btn" onclick="setF('SYNCED',this)">✅ Synced (${nS})</button>
   <button class="btn" onclick="setF('PENDING',this)">⏳ Pending (${nP})</button>
   <button class="btn" onclick="setF('STALE',this)">🗑 Stale (${nT})</button>
+  <button class="btn" onclick="setF('LOCAL',this)">📁 Local (${nL})</button>
   <input type="text" id="q" placeholder="Search token…" oninput="apply()">
 </div>
-<div class="tw"><table><thead><tr>
-  <th>Token</th><th>Type</th>${modeThs}<th>Status</th>
-</tr></thead><tbody id="tb">${tbody}</tbody></table></div>
+<div class="col-nav">${collectionNav}</div>
+<div id="main">${sections}</div>
 <script>
 let af='ALL';
 function setF(f,btn){af=f;document.querySelectorAll('.btn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');apply();}
 function apply(){
   const q=document.getElementById('q').value.toLowerCase();
-  const gv={};
-  document.querySelectorAll('#tb tr.tr').forEach(r=>{
-    const show=(af==='ALL'||r.dataset.status===af)&&(!q||r.querySelector('.tname code').textContent.toLowerCase().includes(q));
-    r.classList.toggle('hidden',!show);
-    if(show)gv[r.dataset.group]=true;
+  document.querySelectorAll('.col-section').forEach(sec=>{
+    const rows=sec.querySelectorAll('tr.tr');
+    const gv={};
+    rows.forEach(r=>{
+      const show=(af==='ALL'||r.dataset.status===af)&&(!q||r.querySelector('.tname code').textContent.toLowerCase().includes(q));
+      r.classList.toggle('hidden',!show);
+      if(show)gv[r.closest('tbody').id||'x']=true;
+    });
+    sec.querySelectorAll('tr.gr').forEach(g=>{
+      let sib=g.nextElementSibling,vis=false;
+      while(sib&&!sib.classList.contains('gr')){if(!sib.classList.contains('hidden'))vis=true;sib=sib.nextElementSibling;}
+      g.classList.toggle('hidden',!vis);
+    });
+    const anyVisible=[...rows].some(r=>!r.classList.contains('hidden'));
+    sec.classList.toggle('hidden',!anyVisible);
   });
-  document.querySelectorAll('#tb tr.gr').forEach(g=>{g.classList.toggle('hidden',!gv[g.dataset.group]);});
 }
 </script></body></html>`;
 
   const htmlPath = REPORT_HTML.startsWith('/') ? REPORT_HTML : join(ROOT, REPORT_HTML);
   writeFileSync(htmlPath, html);
-  console.log(`\n🌐 HTML token report → ${REPORT_HTML}`);
+  console.log(`\n🌐 HTML token report → ${REPORT_HTML} (${hRows.length} rows, ${collectionOrder.length} collections)`);
 }
 
 // ── Write report ──────────────────────────────────────────────────────────────
