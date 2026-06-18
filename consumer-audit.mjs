@@ -723,9 +723,8 @@ input:focus{border-color:#6366f1}
 .col-tag.local{background:#ede9fe;color:#5b21b6}
 .tw{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
-thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap;position:sticky;z-index:5}
-thead tr:first-child th{top:var(--nav-h,0px)}
-thead tr:nth-child(2) th{top:calc(var(--nav-h,0px) + 30px)}
+thead{position:relative;z-index:5}
+thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
 th.th-group{background:#2d2d44;color:#a5b4fc;font-size:10px;font-weight:700;letter-spacing:.6px;text-align:center;border-bottom:1px solid #3d3d5c}
 th.th-group-pb{background:#312e3f;color:#c4b5fd}
 th.th-mode{min-width:180px}
@@ -795,6 +794,7 @@ function switchTab(col, btn){
   document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('on'));
   document.querySelectorAll('.fbtn')[0].classList.add('on');
   apply();
+  stickyHead();
 }
 function setF(f,btn){af=f;document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');apply();}
 function apply(){
@@ -819,14 +819,27 @@ function apply(){
   em.textContent=vis?'':'No tokens match this filter.';
   document.getElementById('col-info').textContent=vis+' token'+(vis===1?'':'s')+' shown';
 }
+// Sticky thead — CSS position:sticky breaks inside overflow-x:auto containers,
+// so we manually translate the thead to follow the scroll position.
+function stickyHead(){
+  const nav=document.querySelector('.nav');
+  const navH=nav?nav.offsetHeight:0;
+  const sec=document.querySelector('.col-section.active');
+  if(!sec)return;
+  const thead=sec.querySelector('thead');
+  if(!thead)return;
+  const tbl=sec.querySelector('table');
+  const top=tbl.getBoundingClientRect().top;
+  const offset=Math.max(0,navH-top);
+  thead.style.transform=offset>0?'translateY('+offset+'px)':'';
+}
+window.addEventListener('scroll',stickyHead,{passive:true});
 // init
 document.addEventListener('DOMContentLoaded',()=>{
   const first=document.querySelector('.col-section');
   if(first)first.classList.add('active');
-  // Set --nav-h so sticky thead rows clear the sticky nav bar
-  const nav=document.querySelector('.nav');
-  if(nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight+'px');
   apply();
+  stickyHead();
 });
 </script></body></html>`;
 
