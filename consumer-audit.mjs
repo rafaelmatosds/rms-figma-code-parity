@@ -696,10 +696,12 @@ if (REPORT_HTML) {
       : allModes.map(([,n])=>n).join(', ');
 
     const cs = colStats[colName] ?? {total:0,s:0,p:0,t:0,l:0};
+    // theadInner = the <tr> rows without the outer <thead> tag (ghost-thead IS the thead element)
+    const theadInner = theadHtml.replace(/^\s*<thead[^>]*>/,'').replace(/<\/thead>\s*$/,'');
     sections += `
-<div class="col-section" data-col="${colName}" data-counts="${encodeURIComponent(JSON.stringify(cs))}">
+<div class="col-section" data-col="${colName}" data-counts="${encodeURIComponent(JSON.stringify(cs))}" data-thead="${encodeURIComponent(theadHtml)}">
   <div class="tw"><table>
-    ${theadHtml}
+    <thead class="ghost-thead" aria-hidden="true">${theadInner}</thead>
     <tbody>${tbody2}</tbody>
   </table></div>
 </div>`;
@@ -781,12 +783,14 @@ input:focus{border-color:#6366f1}
 .col-tag.local{background:#ede9fe;color:#5b21b6}
 .tw{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
-thead{position:relative;z-index:15;will-change:transform}
-thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
+.ghost-thead{visibility:hidden}
+.nav-thead-wrap{overflow-x:hidden}
+.nav-thead-table{width:100%;border-collapse:collapse;table-layout:fixed}
+thead th,#nav-thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
 th.th-group{background:#2d2d44;color:#a5b4fc;font-size:10px;font-weight:700;letter-spacing:.6px;text-align:center;border-bottom:1px solid #3d3d5c}
 th.th-group-pb{background:#312e3f;color:#c4b5fd}
 th.th-mode{min-width:180px}
-th:first-child{min-width:280px}
+.ghost-thead th:first-child,#nav-thead th:first-child{min-width:280px}
 tr.tr{border-bottom:1px solid #f0f2f5}
 tr.tr:hover{background:#fafbff}
 tr.s-STALE .tname code{color:#c0c4cc}
@@ -838,6 +842,9 @@ tr.hidden{display:none}
     <span class="col-info" id="col-info"></span>
     <input type="text" id="q" placeholder="Search token…" oninput="apply()">
   </div>
+  <div class="nav-thead-wrap" id="nav-thead-wrap">
+    <table class="nav-thead-table" id="nav-thead-table"><thead id="nav-thead"></thead></table>
+  </div>
 </div>
 <div id="main">${sections}</div>
 <script>
@@ -868,7 +875,7 @@ function switchTab(col, btn){
   document.querySelectorAll('.fbtn')[0].classList.add('on');
   updateFilterCounts();
   apply();
-  stickyHead();
+  injectThead();
 }
 function setF(f,btn){af=f;document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');apply();}
 function apply(){
@@ -893,26 +900,41 @@ function apply(){
   em.textContent=vis?'':'No tokens match this filter.';
   document.getElementById('col-info').textContent=vis+' token'+(vis===1?'':'s')+' shown';
 }
-function stickyHead(){
-  const nav=document.querySelector('.nav');
-  const navH=nav?nav.offsetHeight:0;
+function injectThead(){
+  const sec=document.querySelector('.col-section.active');
+  const navTheadEl=document.getElementById('nav-thead');
+  if(!sec||!navTheadEl)return;
+  const tmp=document.createElement('div');
+  tmp.innerHTML=decodeURIComponent(sec.dataset.thead||'');
+  const newThead=tmp.querySelector('thead');
+  if(newThead)navTheadEl.replaceWith(newThead);
+  syncColWidths();
+  bindTwScroll();
+}
+function syncColWidths(){
   const sec=document.querySelector('.col-section.active');
   if(!sec)return;
-  const thead=sec.querySelector('thead');
-  if(!thead)return;
-  const top=sec.querySelector('table').getBoundingClientRect().top;
-  const offset=Math.max(0,navH-top);
-  thead.style.transform=offset>0?'translateY('+offset+'px)':'';
+  const ghostThs=sec.querySelectorAll('.ghost-thead th');
+  const navThs=document.querySelectorAll('#nav-thead th');
+  ghostThs.forEach((th,i)=>{if(navThs[i])navThs[i].style.width=th.offsetWidth+'px';});
+  const bodyTable=sec.querySelector('.tw table');
+  const navTable=document.getElementById('nav-thead-table');
+  if(bodyTable&&navTable)navTable.style.width=bodyTable.offsetWidth+'px';
 }
-window.addEventListener('scroll',stickyHead,{passive:true});
-window.addEventListener('resize',stickyHead,{passive:true});
+function bindTwScroll(){
+  const tw=document.querySelector('.col-section.active .tw');
+  const wrap=document.getElementById('nav-thead-wrap');
+  if(!tw||!wrap)return;
+  tw.addEventListener('scroll',()=>{wrap.scrollLeft=tw.scrollLeft;},{passive:true});
+}
+window.addEventListener('resize',syncColWidths,{passive:true});
 // init
 document.addEventListener('DOMContentLoaded',()=>{
   const first=document.querySelector('.col-section');
   if(first)first.classList.add('active');
   updateFilterCounts();
   apply();
-  stickyHead();
+  injectThead();
 });
 </script></body></html>`;
 
