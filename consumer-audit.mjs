@@ -483,13 +483,14 @@ if (REPORT_HTML) {
     else if (inDSLinked)                                                status = 'SYNCED';
     else /* !inDSLinked && inDS */                                      status = 'PENDING';
 
-    // Only show modes that match the DS-configured mode names (e.g. Light, Dark).
-    // The API can return stale extra modes (e.g. old brand variants) that no longer
-    // exist in the current Figma file but persist in cached responses.
+    // For the linked DS collection (Theme), filter to only DS-configured mode names
+    // to exclude stale modes that persist in old cache entries (e.g. Light BPG V1).
+    // All other collections (Breakpoint, Language, etc.) show their own modes as-is.
     const configuredModeNames = new Set(MODES.map(m => m.name));
+    const isLinkedCol = col.remote && col.name === linkedDSCollection.name;
     const modeVals = {};
     for (const mode of (col.modes??[])) {
-      if (!configuredModeNames.has(mode.name)) continue;
+      if (isLinkedCol && !configuredModeNames.has(mode.name)) continue;
       const val = v.valuesByMode?.[mode.modeId];
       modeVals[mode.modeId] = {
         modeName: mode.name,
@@ -660,7 +661,7 @@ if (REPORT_HTML) {
         const gp=g.filter(x=>x.status==='PENDING').length;
         const gt=g.filter(x=>x.status==='STALE').length;
         const gl=g.filter(x=>x.status==='LOCAL').length;
-        const pills=[gs?`<span class="gp s">✅ ${gs}</span>`:'',gp?`<span class="gp p">⏳ ${gp}</span>`:'',gt?`<span class="gp t">🗑 ${gt}</span>`:'',gl?`<span class="gp l">📁 ${gl}</span>`:''].filter(Boolean).join('');
+        const pills=[gs?`<span class="gp s"><span class="dot s"></span>${gs}</span>`:'',gp?`<span class="gp p"><span class="dot p"></span>${gp}</span>`:'',gt?`<span class="gp t"><span class="dot st"></span>${gt}</span>`:'',gl?`<span class="gp l"><span class="dot lo"></span>${gl}</span>`:''].filter(Boolean).join('');
         tbody2 += `<tr class="gr"><td colspan="${nCols}"><span class="gname">${r.group}</span>${pills}</td></tr>`;
       }
       const dsCells    = colModes.map(([mid])=>valCell(r.modeVals[mid])).join('');
@@ -780,7 +781,7 @@ tr.tr:hover{background:#fafbff}
 tr.s-STALE .tname code{color:#c0c4cc}
 tr.gr td{background:#f0f2f7;padding:5px 10px;border-top:2px solid #d0d7de}
 .gname{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-right:10px;color:#374151}
-.gp{font-size:10px;margin-right:5px}.gp.s{color:#166534}.gp.p{color:#854d0e}.gp.t{color:#991b1b}.gp.l{color:#5b21b6}
+.gp{display:inline-flex;align-items:center;font-size:10px;margin-right:5px}.gp.s{color:#166534}.gp.p{color:#854d0e}.gp.t{color:#991b1b}.gp.l{color:#5b21b6}
 td{padding:4px 10px;vertical-align:middle}
 td.tname code{font-size:11px;word-break:break-all}
 td.val{white-space:nowrap;padding:4px 10px}
