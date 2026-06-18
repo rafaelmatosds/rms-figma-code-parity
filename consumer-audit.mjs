@@ -677,7 +677,7 @@ if (REPORT_HTML) {
 <title>Token Parity — ${CONSUMER_KEY}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#111;background:#fff;height:100vh;display:flex;flex-direction:column}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#111;background:#fff}
 .top{padding:16px 28px 10px;border-bottom:1px solid #e4e7ec;flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
 .top-title h1{font-size:17px;font-weight:700;margin-bottom:3px}
 .top-title .meta{font-size:11px;color:#777}
@@ -716,17 +716,16 @@ input{border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px
 input:focus{border-color:#6366f1}
 .col-info{font-size:10px;color:#888;margin-left:4px}
 /* ── Collection panel ── */
-#main{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.col-section{display:none;flex-direction:column;overflow:hidden;flex:1}
-.col-section.active{display:flex}
-.col-meta{padding:6px 20px;background:#f8f9fc;border-bottom:1px solid #e4e7ec;font-size:10px;color:#666;display:flex;gap:14px;flex-shrink:0}
+.col-section{display:none}
+.col-section.active{display:block}
+.col-meta{padding:6px 20px;background:#f8f9fc;border-bottom:1px solid #e4e7ec;font-size:10px;color:#666;display:flex;gap:14px}
 .col-tag{padding:1px 7px;border-radius:8px;background:#e0e7ff;color:#3730a3;font-weight:600;font-size:10px}
 .col-tag.local{background:#ede9fe;color:#5b21b6}
-.tw{overflow:auto;flex:1}
+.tw{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap;position:sticky;z-index:5}
-thead tr:first-child th{top:0}
-thead tr:nth-child(2) th{top:30px}
+thead tr:first-child th{top:var(--nav-h,0px)}
+thead tr:nth-child(2) th{top:calc(var(--nav-h,0px) + 30px)}
 th.th-group{background:#2d2d44;color:#a5b4fc;font-size:10px;font-weight:700;letter-spacing:.6px;text-align:center;border-bottom:1px solid #3d3d5c}
 th.th-group-pb{background:#312e3f;color:#c4b5fd}
 th.th-mode{min-width:180px}
@@ -824,6 +823,9 @@ function apply(){
 document.addEventListener('DOMContentLoaded',()=>{
   const first=document.querySelector('.col-section');
   if(first)first.classList.add('active');
+  // Set --nav-h so sticky thead rows clear the sticky nav bar
+  const nav=document.querySelector('.nav');
+  if(nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight+'px');
   apply();
 });
 </script></body></html>`;
