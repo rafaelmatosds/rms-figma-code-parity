@@ -99,22 +99,22 @@ console.log(`\n📐 DS snapshot (${snapDate}): ${dsTokenNames.size} component to
 async function fetchFigmaFileName(fileKey, token) {
   if (!fileKey || !token) return null;
   try {
+    // /nodes?ids=0%3A0 returns {"name":"File Name","nodes":{...}} — file name
+    // is the very first field, so we read only the first chunk and abort.
     const res = await fetch(
-      `https://api.figma.com/v1/files/${fileKey}`,
+      `https://api.figma.com/v1/files/${fileKey}/nodes?ids=0%3A0`,
       { headers: { 'X-Figma-Token': token } }
     );
     if (!res.ok) return null;
-    // Stream only the first chunk — the "name" field is always near the top
-    // of the response, so we never need to download the full document.
     const reader = res.body.getReader();
     let text = '';
-    while (text.length < 2000) {
+    while (text.length < 500) {
       const { done, value } = await reader.read();
       if (value) text += new TextDecoder().decode(value);
       if (done) break;
     }
     reader.cancel().catch(() => {});
-    const m = text.match(/"name"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const m = text.match(/^\{"name"\s*:\s*"((?:[^"\\]|\\.)*)"/);
     return m ? m[1].replace(/\\"/g, '"') : null;
   } catch { return null; }
 }
