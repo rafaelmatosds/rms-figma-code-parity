@@ -522,9 +522,9 @@ if (REPORT_HTML) {
     return `<span class="sw" style="background:${bg};border:${b}"></span>`;
   }
   function badge(s){
-    const m={SYNCED:['synced','✅ Synced'],PENDING:['pending','⏳ Pending'],STALE:['stale','🗑 Stale'],LOCAL:['local','📁 Local']};
-    const [cls,lbl]=m[s]??['',''];
-    return `<span class="badge ${cls}">${lbl}</span>`;
+    const m={SYNCED:['synced','s','Synced'],PENDING:['pending','p','Pending'],STALE:['stale','st','Stale'],LOCAL:['local','lo','Local']};
+    const [cls,dc,lbl]=m[s]??['','',''];
+    return `<span class="badge ${cls}"><span class="dot ${dc}"></span>${lbl}</span>`;
   }
   function typePill(t){
     return `<span class="tp tp-${t}">${t}</span>`;
@@ -689,7 +689,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .sum{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
 .stat{padding:10px 16px;border-radius:10px;min-width:100px;cursor:default}
 .stat .n{font-size:22px;font-weight:800;line-height:1}
-.stat .l{font-size:11px;font-weight:600;margin:2px 0 4px}
+.stat .l{font-size:11px;font-weight:600;margin:2px 0 4px;display:flex;align-items:center}
 .stat .d{font-size:10px;opacity:.75;line-height:1.3}
 .stat.s{background:#dcfce7;color:#166534}
 .stat.p{background:#fef9c3;color:#854d0e}
@@ -715,7 +715,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .tab-warn{font-size:12px;margin-left:2px;cursor:default}
 /* ── Toolbar ── */
 .toolbar{display:flex;gap:8px;align-items:center;padding:8px 20px;border-bottom:1px solid #e4e7ec;background:#fff;flex-wrap:wrap}
-.fbtn{padding:3px 10px;border:1px solid #d1d5db;border-radius:14px;background:#fff;cursor:pointer;font-size:11px;color:#374151;white-space:nowrap}
+.fbtn{display:inline-flex;align-items:center;padding:3px 10px;border:1px solid #d1d5db;border-radius:14px;background:#fff;cursor:pointer;font-size:11px;color:#374151;white-space:nowrap}
 .fbtn:hover{background:#f3f4f6}.fbtn.on{background:#4f46e5;color:#fff;border-color:#4f46e5}
 input{border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px;width:200px;outline:none;margin-left:auto}
 input:focus{border-color:#6366f1}
@@ -749,7 +749,9 @@ code.noncolor{font-size:11px;color:#444;background:#f4f4f8;border:1px solid #e0e
 .opacity-badge{font-size:10px;color:#6b21a8;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:4px;padding:1px 5px;margin-left:4px;vertical-align:middle;font-weight:500}
 .alias-name{font-size:11px;color:#0369a1;vertical-align:middle;max-width:260px;overflow:hidden;text-overflow:ellipsis;display:inline-block;white-space:nowrap;cursor:default}
 td.empty{color:#ddd;font-size:11px;padding:4px 10px}
-.badge{padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle;flex-shrink:0}
+.dot.s{background:#22c55e}.dot.p{background:#eab308}.dot.st{background:#ef4444}.dot.lo{background:#a855f7}
+.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
 .badge.synced{background:#dcfce7;color:#166534}.badge.pending{background:#fef9c3;color:#854d0e}
 .badge.stale{background:#fee2e2;color:#991b1b}.badge.local{background:#ede9fe;color:#5b21b6}
 .tp{padding:1px 5px;border-radius:3px;font-size:10px;font-weight:500}
@@ -764,10 +766,10 @@ tr.hidden{display:none}
     <div class="meta">DS Figma file: ${snapDate} &nbsp;·&nbsp; Consumer Figma file: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; ${hRows.length} tokens · ${collectionOrder.length} collections</div>
   </div>
   <div class="sum">
-    <div class="stat s"><div class="n">${nS}</div><div class="l">✅ Synced</div><div class="d">In DS & consumer</div></div>
-    <div class="stat p"><div class="n">${nP}</div><div class="l">⏳ Pending</div><div class="d">Update library to sync</div></div>
-    <div class="stat st"><div class="n">${nT}</div><div class="l">🗑 Stale</div><div class="d">Removed from DS</div></div>
-    <div class="stat lo"><div class="n">${nL}</div><div class="l">📁 Local</div><div class="d">Consumer override</div></div>
+    <div class="stat s"><div class="n">${nS}</div><div class="l"><span class="dot s"></span>Synced</div><div class="d">In DS & consumer</div></div>
+    <div class="stat p"><div class="n">${nP}</div><div class="l"><span class="dot p"></span>Pending</div><div class="d">Update library to sync</div></div>
+    <div class="stat st"><div class="n">${nT}</div><div class="l"><span class="dot st"></span>Stale</div><div class="d">Removed from DS</div></div>
+    <div class="stat lo"><div class="n">${nL}</div><div class="l"><span class="dot lo"></span>Local</div><div class="d">Consumer override</div></div>
     <div class="stat tot"><div class="n">${hRows.length}</div><div class="l">Total</div><div class="d">Across collections</div></div>
   </div>
 </div>
@@ -776,10 +778,10 @@ tr.hidden{display:none}
   <div class="tabs">${tabsHtml}</div>
   <div class="toolbar">
     <button class="fbtn on" onclick="setF('ALL',this)">All</button>
-    <button class="fbtn" onclick="setF('SYNCED',this)">✅ Synced</button>
-    <button class="fbtn" onclick="setF('PENDING',this)">⏳ Pending</button>
-    <button class="fbtn" onclick="setF('STALE',this)">🗑 Stale</button>
-    <button class="fbtn" onclick="setF('LOCAL',this)">📁 Local</button>
+    <button class="fbtn" onclick="setF('SYNCED',this)"><span class="dot s"></span>Synced</button>
+    <button class="fbtn" onclick="setF('PENDING',this)"><span class="dot p"></span>Pending</button>
+    <button class="fbtn" onclick="setF('STALE',this)"><span class="dot st"></span>Stale</button>
+    <button class="fbtn" onclick="setF('LOCAL',this)"><span class="dot lo"></span>Local</button>
     <span class="col-info" id="col-info"></span>
     <input type="text" id="q" placeholder="Search token…" oninput="apply()">
   </div>
