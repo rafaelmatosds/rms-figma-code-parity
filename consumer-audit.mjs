@@ -541,11 +541,13 @@ if (REPORT_HTML) {
     return `<td class="val"${colspan}>${inner}</td>`;
   }
 
-  // Detect the local override collection (PB Theme) — largest LOCAL collection
-  // It is Figma's child of the linked DS collection and should be shown within that tab.
-  const localOverrideCol = [...colMap.keys()]
-    .filter(n => !colIsRemote.get(n))
-    .sort((a,b) => colRowCount.get(b) - colRowCount.get(a))[0] ?? null;
+  // Detect the local override collection (PB Theme) by ID overlap with the linked DS collection.
+  // PB Theme shares variable IDs with remote Theme (Figma's override mechanism), so it never
+  // appears in colMap independently — we must detect it from the raw collection data instead.
+  const _linkedIds = new Set(linkedDSCollection.variableIds ?? []);
+  const localOverrideCol = localCollections
+    .filter(c => (c.variableIds ?? []).some(id => _linkedIds.has(id)))
+    .sort((a,b) => (b.variableIds?.length ?? 0) - (a.variableIds?.length ?? 0))[0]?.name ?? null;
 
   // Build collectionOrder: DS collections first, local override absorbed into linked DS col tab
   const collectionOrder = [...colMap.keys()].filter(n => n !== localOverrideCol);
