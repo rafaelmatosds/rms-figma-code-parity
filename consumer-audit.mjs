@@ -745,7 +745,7 @@ tr.hidden{display:none}
 <div class="top">
   <div class="top-title">
     <h1>Token Parity — BancoBAI × INNOVA DS</h1>
-    <div class="meta">DS snapshot: ${snapDate} &nbsp;·&nbsp; Generated: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; ${hRows.length} tokens · ${collectionOrder.length} collections</div>
+    <div class="meta">DS Figma file: ${snapDate} &nbsp;·&nbsp; Consumer Figma file: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; ${hRows.length} tokens · ${collectionOrder.length} collections</div>
   </div>
   <div class="sum">
     <div class="stat s"><div class="n">${nS}</div><div class="l">✅ Synced</div><div class="d">In DS and consumer file</div></div>
