@@ -158,16 +158,19 @@ if (!FRESH && existsSync(CACHE_PATH)) {
 // Fetch file names (cached in data._consumerFileName / data._dsFileName)
 const FIGMA_TOKEN_DS = process.env.FIGMA_TOKEN_DS ?? env.FIGMA_TOKEN_DS ?? '';
 const DS_FILE_KEY    = cfg.figmaFileKey ?? '';
-if (!data._consumerFileName) {
+// File name resolution: ds-config.json overrides > API fetch > file key fallback
+const cfgConsumerName = cfg.consumerFileName ?? null;
+const cfgDsName       = cfg.dsFileName ?? null;
+if (!cfgConsumerName && !data._consumerFileName) {
   data._consumerFileName = await fetchFigmaFileName(CONSUMER_KEY, FIGMA_TOKEN);
   if (data._consumerFileName) writeFileSync(CACHE_PATH, JSON.stringify(data));
 }
-if (!data._dsFileName && (FIGMA_TOKEN_DS || FIGMA_TOKEN)) {
+if (!cfgDsName && !data._dsFileName && (FIGMA_TOKEN_DS || FIGMA_TOKEN)) {
   data._dsFileName = await fetchFigmaFileName(DS_FILE_KEY, FIGMA_TOKEN_DS || FIGMA_TOKEN);
   if (data._dsFileName) writeFileSync(CACHE_PATH, JSON.stringify(data));
 }
-const consumerFileName = data._consumerFileName ?? CONSUMER_KEY;
-const dsFileName       = data._dsFileName ?? DS_FILE_KEY;
+const consumerFileName = cfgConsumerName ?? data._consumerFileName ?? CONSUMER_KEY;
+const dsFileName       = cfgDsName       ?? data._dsFileName       ?? DS_FILE_KEY;
 
 const consumerCollections = Object.values(data.meta?.variableCollections ?? {});
 const consumerVariables   = Object.values(data.meta?.variables ?? {});
