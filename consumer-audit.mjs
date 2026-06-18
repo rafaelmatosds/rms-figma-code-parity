@@ -781,7 +781,8 @@ input:focus{border-color:#6366f1}
 .col-tag.local{background:#ede9fe;color:#5b21b6}
 .tw{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
-thead th{position:sticky;top:var(--nav-h,0px);z-index:10;background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
+thead{position:relative;z-index:15;will-change:transform}
+thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:7px 10px;text-align:left;white-space:nowrap}
 th.th-group{background:#2d2d44;color:#a5b4fc;font-size:10px;font-weight:700;letter-spacing:.6px;text-align:center;border-bottom:1px solid #3d3d5c}
 th.th-group-pb{background:#312e3f;color:#c4b5fd}
 th.th-mode{min-width:180px}
@@ -894,8 +895,16 @@ function apply(){
 }
 function stickyHead(){
   const nav=document.querySelector('.nav');
-  document.documentElement.style.setProperty('--nav-h',(nav?nav.offsetHeight:0)+'px');
+  const navH=nav?nav.offsetHeight:0;
+  const sec=document.querySelector('.col-section.active');
+  if(!sec)return;
+  const thead=sec.querySelector('thead');
+  if(!thead)return;
+  const top=sec.querySelector('table').getBoundingClientRect().top;
+  const offset=Math.max(0,navH-top);
+  thead.style.transform=offset>0?'translateY('+offset+'px)':'';
 }
+window.addEventListener('scroll',stickyHead,{passive:true});
 window.addEventListener('resize',stickyHead,{passive:true});
 // init
 document.addEventListener('DOMContentLoaded',()=>{
