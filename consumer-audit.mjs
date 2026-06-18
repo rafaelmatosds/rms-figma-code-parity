@@ -509,10 +509,18 @@ if (REPORT_HTML) {
   function valCell(v, span=1){
     const colspan = span > 1 ? ` colspan="${span}"` : '';
     if(!v||v.display==='—') return `<td class="val empty"${colspan}>—</td>`;
-    const aliasTip = v.aliasOf ? ` title="aliased from: ${v.aliasOf}"` : '';
-    const inner = v.hex
-      ? `${sw(v.hex,v.fromDS,v.alpha)}<code class="hex"${aliasTip}>${v.display}</code>${v.opacityPct!=null?`<span class="opacity-badge">${v.opacityPct}%</span>`:''} ${v.aliasOf?`<span class="alias-tag">↩ ${v.aliasOf.split('/').pop()}</span>`:''}`
-      : `<code class="noncolor">${v.display}</code>`;
+    let inner;
+    if(v.hex && v.aliasOf){
+      // Aliased color — show swatch + variable name only (no hex), mirroring Figma
+      const opBadge = v.opacityPct!=null ? `<span class="opacity-badge">${v.opacityPct}%</span>` : '';
+      inner = `${sw(v.hex,v.fromDS,v.alpha)}<span class="alias-name" title="${v.aliasOf}">${v.aliasOf}</span>${opBadge}`;
+    } else if(v.hex){
+      // Direct (unaliased) color — show hex
+      const opBadge = v.opacityPct!=null ? `<span class="opacity-badge">${v.opacityPct}%</span>` : '';
+      inner = `${sw(v.hex,v.fromDS,v.alpha)}<code class="hex">${v.display}</code>${opBadge}`;
+    } else {
+      inner = `<code class="noncolor">${v.display}</code>`;
+    }
     return `<td class="val"${colspan}>${inner}</td>`;
   }
 
@@ -657,7 +665,7 @@ td.val .sw{display:inline-block;width:13px;height:13px;border-radius:3px;vertica
 code.hex{font-size:11px;color:#1e1e2e;vertical-align:middle}
 code.noncolor{font-size:11px;color:#444;background:#f4f4f8;border:1px solid #e0e0ea;border-radius:3px;padding:1px 5px}
 .opacity-badge{font-size:10px;color:#6b21a8;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:4px;padding:1px 5px;margin-left:4px;vertical-align:middle;font-weight:500}
-.alias-tag{font-size:10px;color:#0369a1;background:#e0f2fe;border:1px solid #bae6fd;border-radius:4px;padding:1px 5px;vertical-align:middle;max-width:140px;overflow:hidden;text-overflow:ellipsis;display:inline-block;white-space:nowrap}
+.alias-name{font-size:11px;color:#0369a1;vertical-align:middle;max-width:260px;overflow:hidden;text-overflow:ellipsis;display:inline-block;white-space:nowrap;cursor:default}
 td.empty{color:#ddd;font-size:11px;padding:4px 10px}
 .badge{padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
 .badge.synced{background:#dcfce7;color:#166534}.badge.pending{background:#fef9c3;color:#854d0e}
