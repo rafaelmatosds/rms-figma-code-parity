@@ -42,8 +42,10 @@ if (!CONSUMER_KEY) {
   console.error('❌ Usage: node consumer-audit.mjs --file <consumerFileKey> [--report-md <output.md>]');
   process.exit(1);
 }
-const mdArgIdx = process.argv.indexOf('--report-md');
-const REPORT_MD = mdArgIdx !== -1 ? process.argv[mdArgIdx + 1] : null;
+const mdArgIdx   = process.argv.indexOf('--report-md');
+const REPORT_MD  = mdArgIdx  !== -1 ? process.argv[mdArgIdx  + 1] : null;
+const htmlArgIdx = process.argv.indexOf('--report-html');
+const REPORT_HTML = htmlArgIdx !== -1 ? process.argv[htmlArgIdx + 1] : null;
 
 // ── Load ds-config.json ───────────────────────────────────────────────────────
 let cfg = {};
@@ -331,6 +333,197 @@ if (REPORT_MD) {
   const mdPath = REPORT_MD.startsWith('/') ? REPORT_MD : join(ROOT, REPORT_MD);
   writeFileSync(mdPath, md);
   console.log(`\n📊 Full token report → ${REPORT_MD}`);
+}
+
+// ── HTML full token report (--report-html) ────────────────────────────────────
+if (REPORT_HTML) {
+  // Re-use rows already built in the --report-md block if available, otherwise rebuild
+  const _linkedModes = linkedDSCollection.modes ?? [];
+  const _localColObj = localCollections.sort((a,b)=>(b.variableIds?.length??0)-(a.variableIds?.length??0))[0];
+  const _localVarIds = new Set(_localColObj?.variableIds ?? []);
+
+  function _toHex(c){ return '#'+['r','g','b'].map(k=>Math.round((c[k]??0)*255).toString(16).padStart(2,'0')).join(''); }
+  function _resolveVal(val){
+    if(val==null) return {display:'—',hex:null};
+    if(typeof val==='object'&&val.type==='VARIABLE_ALIAS'){
+      const a=byId[val.id]; return a?{display:`→ ${a.name}`,hex:null}:{display:'(ext)',hex:null};
+    }
+    if(typeof val==='object'&&'r' in val){ const h=_toHex(val); return {display:h,hex:h}; }
+    if(typeof val==='number') return {display:String(Math.round(val*100)/100),hex:null};
+    if(typeof val==='boolean') return {display:val?'true':'false',hex:null};
+    if(typeof val==='string') return {display:val,hex:null};
+    return {display:'—',hex:null};
+  }
+
+  const _allNames = new Set([
+    ...dsTokenNames,
+    ...[...linkedVarIds].map(id=>byId[id]?.name).filter(n=>n&&!n.startsWith(PRIM_PFX)),
+    ...[...(_localColObj?.variableIds??[])].map(id=>byId[id]?.name).filter(n=>n&&!n.startsWith(PRIM_PFX)),
+  ]);
+
+  const hRows = [];
+  for (const name of _allNames) {
+    const lv = consumerVariables.find(v=>linkedVarIds.has(v.id)&&v.name===name);
+    const lov= consumerVariables.find(v=>_localVarIds.has(v.id)&&v.name===name);
+    const inDS = dsTokenNames.has(name);
+    const status = inDS && lv ? 'SYNCED' : inDS ? 'PENDING' : 'STALE';
+    const type = (lv??lov)?.resolvedType ?? 'COLOR';
+    const modeVals = {};
+    if (lv || lov) {
+      for (const mode of _linkedModes) {
+        const val = (lv??lov)?.valuesByMode?.[mode.modeId];
+        modeVals[mode.name] = val!==undefined ? _resolveVal(val) : {display:'—',hex:null};
+      }
+      if (!lv && lov && _linkedModes.length===0) {
+        for (const mode of (_localColObj?.modes??[])) {
+          const val = lov.valuesByMode?.[mode.modeId];
+          modeVals[mode.name] = val!==undefined ? _resolveVal(val) : {display:'—',hex:null};
+        }
+      }
+    } else {
+      for (const m of MODES) {
+        const hex = snap.color?.[m.snapshotKey]?.[name];
+        modeVals[m.name] = hex ? {display:hex,hex,fromDS:true} : {display:'(new in DS)',hex:null,fromDS:true};
+      }
+    }
+    hRows.push({name, status, type, modeVals, group: name.split('/').slice(0,2).join('/')});
+  }
+  hRows.sort((a,b)=>a.name.localeCompare(b.name));
+
+  const hModeNames = _linkedModes.length ? _linkedModes.map(m=>m.name) : MODES.map(m=>m.name);
+  const nS = hRows.filter(r=>r.status==='SYNCED').length;
+  const nP = hRows.filter(r=>r.status==='PENDING').length;
+  const nT = hRows.filter(r=>r.status==='STALE').length;
+
+  const grouped = {};
+  for (const r of hRows){ if(!grouped[r.group])grouped[r.group]=[]; grouped[r.group].push(r); }
+
+  function sw(hex,fromDS){
+    if(!hex) return '';
+    const b=fromDS?'2px dashed #888':'1px solid rgba(0,0,0,.15)';
+    return `<span class="sw" style="background:${hex};border:${b}"></span>`;
+  }
+  function badge(s){
+    const m={SYNCED:['synced','✅ Synced'],PENDING:['pending','⏳ Pending'],STALE:['stale','🗑 Stale']};
+    const [cls,lbl]=m[s]??['',''];
+    return `<span class="badge ${cls}">${lbl}</span>`;
+  }
+  function typePill(t){
+    return `<span class="tp tp-${t}">${t}</span>`;
+  }
+  function valCell(v){
+    if(!v||v.display==='—') return `<td class="val empty">—</td>`;
+    return `<td class="val">${sw(v.hex,v.fromDS)}<code>${v.display}</code></td>`;
+  }
+
+  const modeThs = hModeNames.map(m=>`<th class="th-mode">${m}</th>`).join('');
+  let tbody='', lastGroup='';
+  for (const r of hRows){
+    if(r.group!==lastGroup){
+      lastGroup=r.group;
+      const g=grouped[r.group];
+      const gs=g.filter(x=>x.status==='SYNCED').length;
+      const gp=g.filter(x=>x.status==='PENDING').length;
+      const gt=g.filter(x=>x.status==='STALE').length;
+      const pills=[gs?`<span class="gp s">✅ ${gs}</span>`:'',gp?`<span class="gp p">⏳ ${gp}</span>`:'',gt?`<span class="gp t">🗑 ${gt}</span>`:''].filter(Boolean).join('');
+      tbody+=`<tr class="gr" data-group="${r.group}"><td colspan="${2+hModeNames.length+1}"><span class="gname">${r.group}</span>${pills}</td></tr>`;
+    }
+    const mCells=hModeNames.map(m=>valCell(r.modeVals[m])).join('');
+    tbody+=`<tr class="tr s-${r.status}" data-status="${r.status}" data-group="${r.group}">
+      <td class="tname"><code>${r.name}</code></td>
+      <td class="ttype">${typePill(r.type)}</td>
+      ${mCells}
+      <td class="tst">${badge(r.status)}</td>
+    </tr>`;
+  }
+
+  const html=`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Token Parity — ${CONSUMER_KEY}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#111;background:#fff}
+.top{padding:20px 28px 14px;border-bottom:1px solid #e4e7ec}
+h1{font-size:18px;font-weight:700;margin-bottom:4px}
+.meta{font-size:11px;color:#666}
+.sum{display:flex;gap:12px;padding:14px 28px;background:#f7f8fa;border-bottom:1px solid #e4e7ec;flex-wrap:wrap}
+.stat{padding:10px 20px;border-radius:8px;text-align:center;min-width:80px}
+.stat .n{font-size:24px;font-weight:800;line-height:1}
+.stat .l{font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
+.stat.s{background:#dcfce7;color:#166534}.stat.p{background:#fef9c3;color:#854d0e}
+.stat.st{background:#fee2e2;color:#991b1b}.stat.tot{background:#e5e7eb;color:#111}
+.legend{padding:8px 28px;font-size:10px;color:#777;border-bottom:1px solid #e4e7ec;display:flex;gap:16px;flex-wrap:wrap}
+.bar{padding:10px 28px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #e4e7ec;position:sticky;top:0;background:#fff;z-index:20}
+.btn{padding:4px 12px;border:1px solid #d1d5db;border-radius:20px;background:#fff;cursor:pointer;font-size:11px;color:#374151}
+.btn:hover{background:#f3f4f6}.btn.on{background:#111;color:#fff;border-color:#111}
+input{border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px;width:220px;outline:none}
+input:focus{border-color:#6366f1}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+thead th{background:#1e1e2e;color:#e2e8f0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:8px 10px;text-align:left;white-space:nowrap;position:sticky;top:43px;z-index:10}
+th.th-mode{min-width:150px}
+th:first-child{min-width:320px}
+tr.tr{border-bottom:1px solid #f0f2f5}
+tr.tr:hover{background:#fafbff}
+tr.s-STALE .tname code{color:#bbb}
+tr.gr td{background:#f0f2f7;padding:6px 10px 5px;border-top:2px solid #d0d7de}
+.gname{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-right:10px;color:#374151}
+.gp{font-size:10px;margin-right:6px}.gp.s{color:#166534}.gp.p{color:#854d0e}.gp.t{color:#991b1b}
+td{padding:5px 10px;vertical-align:middle}
+td.tname code{font-size:11px;word-break:break-all}
+td.val{white-space:nowrap;display:flex;align-items:center;gap:5px;padding-top:6px;padding-bottom:6px}
+td.val code{font-size:11px;color:#1e1e2e}
+td.empty{color:#ccc;font-size:11px}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;flex-shrink:0}
+.badge{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.badge.synced{background:#dcfce7;color:#166534}.badge.pending{background:#fef9c3;color:#854d0e}.badge.stale{background:#fee2e2;color:#991b1b}
+.tp{padding:1px 6px;border-radius:4px;font-size:10px;font-weight:500}
+.tp-COLOR{background:#dbeafe;color:#1e40af}.tp-FLOAT{background:#ede9fe;color:#5b21b6}
+.tp-BOOLEAN{background:#fef3c7;color:#92400e}.tp-STRING{background:#dcfce7;color:#166534}.tp-—{background:#f3f4f6;color:#6b7280}
+tr.hidden{display:none}
+</style></head><body>
+<div class="top"><h1>Token Parity — BancoBAI × INNOVA DS</h1>
+<div class="meta">DS snapshot: ${snapDate} &nbsp;·&nbsp; Generated: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; Consumer: ${CONSUMER_KEY}</div></div>
+<div class="sum">
+  <div class="stat s"><div class="n">${nS}</div><div class="l">✅ Synced</div></div>
+  <div class="stat p"><div class="n">${nP}</div><div class="l">⏳ Pending</div></div>
+  <div class="stat st"><div class="n">${nT}</div><div class="l">🗑 Stale</div></div>
+  <div class="stat tot"><div class="n">${hRows.length}</div><div class="l">Total</div></div>
+</div>
+<div class="legend">
+  <span>✅ <b>Synced</b> — in DS and consumer linked library</span>
+  <span>⏳ <b>Pending</b> — added to DS; values shown are DS defaults (consumer must accept library update)</span>
+  <span>🗑 <b>Stale</b> — removed from DS, still in consumer's old copy (cleared on library update)</span>
+  <span>Dashed swatch = DS value not yet in consumer</span>
+</div>
+<div class="bar">
+  <button class="btn on" onclick="setF('ALL',this)">All (${hRows.length})</button>
+  <button class="btn" onclick="setF('SYNCED',this)">✅ Synced (${nS})</button>
+  <button class="btn" onclick="setF('PENDING',this)">⏳ Pending (${nP})</button>
+  <button class="btn" onclick="setF('STALE',this)">🗑 Stale (${nT})</button>
+  <input type="text" id="q" placeholder="Search token…" oninput="apply()">
+</div>
+<div class="tw"><table><thead><tr>
+  <th>Token</th><th>Type</th>${modeThs}<th>Status</th>
+</tr></thead><tbody id="tb">${tbody}</tbody></table></div>
+<script>
+let af='ALL';
+function setF(f,btn){af=f;document.querySelectorAll('.btn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');apply();}
+function apply(){
+  const q=document.getElementById('q').value.toLowerCase();
+  const gv={};
+  document.querySelectorAll('#tb tr.tr').forEach(r=>{
+    const show=(af==='ALL'||r.dataset.status===af)&&(!q||r.querySelector('.tname code').textContent.toLowerCase().includes(q));
+    r.classList.toggle('hidden',!show);
+    if(show)gv[r.dataset.group]=true;
+  });
+  document.querySelectorAll('#tb tr.gr').forEach(g=>{g.classList.toggle('hidden',!gv[g.dataset.group]);});
+}
+</script></body></html>`;
+
+  const htmlPath = REPORT_HTML.startsWith('/') ? REPORT_HTML : join(ROOT, REPORT_HTML);
+  writeFileSync(htmlPath, html);
+  console.log(`\n🌐 HTML token report → ${REPORT_HTML}`);
 }
 
 // ── Write report ──────────────────────────────────────────────────────────────
