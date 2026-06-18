@@ -591,16 +591,21 @@ if (REPORT_HTML) {
   const firstCol = collectionOrder[0] ?? '';
   const tabsHtml = collectionOrder.map((n,i) => {
     const st = colStats[n];
-    const tid = `tab-${n.replace(/[\s()]/g,'_')}`;
-    // dominant status label for the tab sub-label
-    const sub = st.l === st.total ? '📁 Local'
-      : st.s === st.total ? '✅ All synced'
-      : st.p > 0 ? `⏳ ${st.p} pending`
-      : st.t > 0 ? `🗑 ${st.t} stale` : '';
-    return `<button class="tab${i===0?' active':''}" data-col="${n}" id="${tid}" onclick="switchTab('${n}',this)">
-  <span class="tab-name">${n === '—' ? 'DS Pending' : n}</span>
-  <span class="tab-count">${st.total}</span>
-  ${sub ? `<span class="tab-sub">${sub}</span>` : ''}
+    // mini status dots: only show statuses that have tokens
+    const dots = [
+      st.s ? `<span class="tdot s" title="${st.s} synced"></span>` : '',
+      st.p ? `<span class="tdot p" title="${st.p} pending"></span>` : '',
+      st.t ? `<span class="tdot t" title="${st.t} stale"></span>` : '',
+      st.l ? `<span class="tdot l" title="${st.l} local"></span>` : '',
+    ].filter(Boolean).join('');
+    const label = n === '—' ? 'DS Pending' : n;
+    const isLocal = st.l === st.total;
+    return `<button class="tab${i===0?' active':''}" data-col="${n}" onclick="switchTab('${n}',this)">
+  <div class="tab-top">
+    <span class="tab-name">${label}</span>
+    <span class="tab-count">${st.total}</span>
+  </div>
+  <div class="tab-bottom">${dots}${isLocal?'<span class="tab-loc">Local</span>':''}</div>
 </button>`;
   }).join('');
 
@@ -624,15 +629,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .stat.lo{background:#ede9fe;color:#5b21b6}
 .stat.tot{background:#e5e7eb;color:#374151}
 /* ── Tab bar ── */
-.tabs{display:flex;gap:0;border-bottom:2px solid #e4e7ec;background:#f8f9fc;flex-shrink:0;overflow-x:auto}
-.tab{display:flex;flex-direction:column;align-items:flex-start;padding:10px 18px 8px;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;background:none;cursor:pointer;min-width:0;flex-shrink:0;transition:border-color .15s}
-.tab:hover{background:#f0f2f7}
-.tab.active{border-bottom-color:#6366f1;background:#fff}
+.tabs{display:flex;gap:6px;padding:10px 20px;border-bottom:1px solid #e4e7ec;background:#f8f9fc;flex-shrink:0;overflow-x:auto}
+.tab{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border:1.5px solid #e4e7ec;border-radius:10px;background:#fff;cursor:pointer;flex-shrink:0;transition:border-color .15s,box-shadow .15s;text-align:left}
+.tab:hover{border-color:#c7d2fe;box-shadow:0 1px 4px rgba(99,102,241,.08)}
+.tab.active{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.12);background:#fff}
+.tab-top{display:flex;align-items:baseline;gap:8px}
 .tab-name{font-size:12px;font-weight:600;color:#374151;white-space:nowrap}
 .tab.active .tab-name{color:#4f46e5}
-.tab-count{font-size:18px;font-weight:800;color:#111;line-height:1.1;margin-top:1px}
+.tab-count{font-size:18px;font-weight:800;color:#1e1e2e;line-height:1}
 .tab.active .tab-count{color:#4f46e5}
-.tab-sub{font-size:10px;color:#888;margin-top:2px;white-space:nowrap}
+.tab-bottom{display:flex;align-items:center;gap:4px;min-height:10px}
+.tdot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.tdot.s{background:#22c55e}.tdot.p{background:#eab308}.tdot.t{background:#ef4444}.tdot.l{background:#a855f7}
+.tab-loc{font-size:10px;color:#9ca3af;font-style:italic}
 /* ── Toolbar ── */
 .toolbar{display:flex;gap:8px;align-items:center;padding:8px 20px;border-bottom:1px solid #e4e7ec;background:#fff;flex-shrink:0;flex-wrap:wrap}
 .fbtn{padding:3px 10px;border:1px solid #d1d5db;border-radius:14px;background:#fff;cursor:pointer;font-size:11px;color:#374151;white-space:nowrap}
