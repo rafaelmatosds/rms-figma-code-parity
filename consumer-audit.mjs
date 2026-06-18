@@ -95,6 +95,20 @@ for (const mode of MODES) {
 const snapDate = snap._updated ?? 'unknown';
 console.log(`\n📐 DS snapshot (${snapDate}): ${dsTokenNames.size} component tokens`);
 
+// ── Fetch a Figma file's display name ─────────────────────────────────────────
+async function fetchFigmaFileName(fileKey, token) {
+  if (!fileKey || !token) return null;
+  try {
+    const res = await fetch(
+      `https://api.figma.com/v1/files/${fileKey}?depth=0`,
+      { headers: { 'X-Figma-Token': token } }
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.name ?? null;
+  } catch { return null; }
+}
+
 // ── Fetch consumer file variables (with cache) ────────────────────────────────
 const CACHE_PATH = join(ROOT, `consumer-vars-cache.${CONSUMER_KEY}.json`);
 let data;
@@ -130,6 +144,20 @@ if (!FRESH && existsSync(CACHE_PATH)) {
     console.log(`✅ Fetched and cached to consumer-vars-cache.${CONSUMER_KEY}.json\n`);
   }
 }
+
+// Fetch file names (cached in data._consumerFileName / data._dsFileName)
+const FIGMA_TOKEN_DS = process.env.FIGMA_TOKEN_DS ?? env.FIGMA_TOKEN_DS ?? '';
+const DS_FILE_KEY    = cfg.figmaFileKey ?? '';
+if (!data._consumerFileName) {
+  data._consumerFileName = await fetchFigmaFileName(CONSUMER_KEY, FIGMA_TOKEN);
+  if (data._consumerFileName) writeFileSync(CACHE_PATH, JSON.stringify(data));
+}
+if (!data._dsFileName && (FIGMA_TOKEN_DS || FIGMA_TOKEN)) {
+  data._dsFileName = await fetchFigmaFileName(DS_FILE_KEY, FIGMA_TOKEN_DS || FIGMA_TOKEN);
+  if (data._dsFileName) writeFileSync(CACHE_PATH, JSON.stringify(data));
+}
+const consumerFileName = data._consumerFileName ?? CONSUMER_KEY;
+const dsFileName       = data._dsFileName ?? DS_FILE_KEY;
 
 const consumerCollections = Object.values(data.meta?.variableCollections ?? {});
 const consumerVariables   = Object.values(data.meta?.variables ?? {});
@@ -679,7 +707,7 @@ if (REPORT_HTML) {
 
   const html=`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
-<title>Token Parity — ${CONSUMER_KEY}</title>
+<title>Token Parity — ${consumerFileName} × ${dsFileName}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;color:#111;background:#fff}
@@ -700,7 +728,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .nav{position:sticky;top:0;z-index:20;background:#f8f9fc;flex-shrink:0}
 .tabs-hdr{padding:8px 20px 0;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#9ca3af}
 .tabs{display:flex;gap:6px;padding:6px 20px 10px;overflow-x:auto}
-.tab{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border:1.5px solid #e4e7ec;border-radius:10px;background:#fff;cursor:pointer;flex-shrink:0;transition:border-color .15s,box-shadow .15s;text-align:left}
+.tab{display:flex;flex-direction:column;gap:3px;padding:6px 12px;border:1.5px solid #e4e7ec;border-radius:10px;background:#fff;cursor:pointer;flex-shrink:0;transition:border-color .15s,box-shadow .15s;text-align:left}
 .tab:hover{border-color:#c7d2fe;box-shadow:0 1px 4px rgba(99,102,241,.08)}
 .tab.active{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.12);background:#fff}
 .tab-top{display:flex;align-items:baseline;gap:8px}
@@ -762,8 +790,8 @@ tr.hidden{display:none}
 </style></head><body>
 <div class="top">
   <div class="top-title">
-    <h1>Token Parity — BancoBAI × INNOVA DS</h1>
-    <div class="meta">DS Figma file: ${snapDate} &nbsp;·&nbsp; Consumer Figma file: ${new Date().toISOString().slice(0,10)} &nbsp;·&nbsp; ${hRows.length} tokens · ${collectionOrder.length} collections</div>
+    <h1>Token Parity — ${consumerFileName} × ${dsFileName}</h1>
+    <div class="meta">DS Figma file: ${dsFileName} (${snapDate}) &nbsp;·&nbsp; Consumer Figma file: ${consumerFileName} (${new Date().toISOString().slice(0,10)}) &nbsp;·&nbsp; ${hRows.length} tokens · ${collectionOrder.length} collections</div>
   </div>
   <div class="sum">
     <div class="stat s"><div class="n">${nS}</div><div class="l"><span class="dot s"></span>Synced</div><div class="d">In DS & consumer</div></div>
