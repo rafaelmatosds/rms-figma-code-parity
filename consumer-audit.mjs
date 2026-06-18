@@ -413,10 +413,14 @@ if (REPORT_HTML) {
     for (const id of (col.variableIds??[]))
       varToCol.set(id, col);
 
-  // Collect all non-primitive variables across ALL collections
+  // Collect variables across ALL collections.
+  // Primitive prefix filter only applies to remote (library) collections —
+  // local collections are the user's own and should always be included.
   const allVars = consumerVariables.filter(v => {
     const col = varToCol.get(v.id);
-    return col && !v.name.startsWith(PRIM_PFX);
+    if (!col) return false;
+    if (col.remote && v.name.startsWith(PRIM_PFX)) return false;
+    return true;
   });
 
   // Also add PENDING tokens (in DS snapshot but not in consumer at all)
@@ -654,10 +658,12 @@ if (REPORT_HTML) {
     // mini status dots: only show statuses that have tokens
     const label = n === '—' ? 'DS Pending' : n;
     const isLocal = st.l === st.total;
+    const isOrphanLocal = isLocal && n !== localOverrideCol;
     return `<button class="tab${i===0?' active':''}" data-col="${n}" onclick="switchTab('${n}',this)">
   <div class="tab-top">
     <span class="tab-name">${label}</span>
     <span class="tab-count">${st.total}</span>
+    ${isOrphanLocal ? `<span class="tab-warn" title="Local collection with no DS counterpart — this shouldn't exist">⚠️</span>` : ''}
   </div>
   ${isLocal?'<div class="tab-bottom"><span class="tab-loc">Local</span></div>':''}
 </button>`;
@@ -696,6 +702,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .tdot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .tdot.s{background:#22c55e}.tdot.p{background:#eab308}.tdot.t{background:#ef4444}.tdot.l{background:#a855f7}
 .tab-loc{font-size:10px;color:#9ca3af;font-style:italic}
+.tab-warn{font-size:12px;margin-left:2px;cursor:default}
 /* ── Toolbar ── */
 .toolbar{display:flex;gap:8px;align-items:center;padding:8px 20px;border-bottom:1px solid #e4e7ec;background:#fff;flex-shrink:0;flex-wrap:wrap;position:sticky;top:0;z-index:15}
 .fbtn{padding:3px 10px;border:1px solid #d1d5db;border-radius:14px;background:#fff;cursor:pointer;font-size:11px;color:#374151;white-space:nowrap}
