@@ -442,8 +442,13 @@ if (REPORT_HTML) {
     else if (inDSLinked)                                                status = 'SYNCED';
     else /* !inDSLinked && inDS */                                      status = 'PENDING';
 
+    // Only show modes that match the DS-configured mode names (e.g. Light, Dark).
+    // The API can return stale extra modes (e.g. old brand variants) that no longer
+    // exist in the current Figma file but persist in cached responses.
+    const configuredModeNames = new Set(MODES.map(m => m.name));
     const modeVals = {};
     for (const mode of (col.modes??[])) {
+      if (!configuredModeNames.has(mode.name)) continue;
       const val = v.valuesByMode?.[mode.modeId];
       modeVals[mode.modeId] = {
         modeName: mode.name,
