@@ -762,7 +762,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 /* ── Toolbar ── */
 .toolbar{display:flex;gap:8px;align-items:center;padding:8px 20px;border-bottom:1px solid #e4e7ec;background:#fff;flex-wrap:wrap}
 .fbtn{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border:1px solid #d1d5db;border-radius:14px;background:#fff;cursor:pointer;font-size:11px;color:#374151;white-space:nowrap}
-.fbtn:hover{background:#f3f4f6}.fbtn.on{background:#4f46e5;color:#fff;border-color:#4f46e5}
+.fbtn:hover{background:#f3f4f6}
+.fbtn.on{color:#fff}
+.fbtn.on[data-filter="ALL"]{background:#111;border-color:#111}
+.fbtn.on[data-filter="SYNCED"]{background:#16a34a;border-color:#16a34a}
+.fbtn.on[data-filter="PENDING"]{background:#ca8a04;border-color:#ca8a04}
+.fbtn.on[data-filter="STALE"]{background:#dc2626;border-color:#dc2626}
+.fbtn.on[data-filter="LOCAL"]{background:#9333ea;border-color:#9333ea}
 .fcount{font-weight:700;opacity:.85}.fcount-zero{opacity:.35}
 input{border:1px solid #d1d5db;border-radius:6px;padding:4px 10px;font-size:11px;width:200px;outline:none;margin-left:auto}
 input:focus{border-color:#6366f1}
