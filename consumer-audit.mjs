@@ -524,8 +524,7 @@ if (REPORT_HTML) {
     return `<td class="val"${colspan}>${inner}</td>`;
   }
 
-  // Build one table per collection group, each with its own mode columns
-  // Collect all unique collections in order of occurrence
+  // One tab per collection — exact names from Figma, no merging
   const collectionOrder = [...colMap.keys()];
 
   // Build per-collection section tables
