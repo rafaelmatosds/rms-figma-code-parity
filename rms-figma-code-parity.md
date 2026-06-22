@@ -35,7 +35,7 @@ At the start of every run, read `./ds-config.json` from the project root.
 1. **Main Design System Figma file** — the full browser URL of the DS file. Extract the file key (path segment after `/design/` or `/file/`). Accept URL, never ask for raw key.
 2. **Theme CSS path** — relative path to the token CSS file(s). Auto-scan common locations; show as default if exactly one is found.
 3. **Figma personal access token** *(optional)* — needed for collection auto-detection and Gate [9]. If already in `.env`, use it silently. Write to `.env` if provided. Never store in `ds-config.json`.
-4. **Is this a consumer file?** *(optional)* — if yes, ask for the DS source Figma URL (parse `figmaSourceKey` from it). Enables `⏳ PENDING FIGMA SYNC` cross-check in Gate [2].
+4. **DS source file for cross-checking** *(optional)* — if the project's snapshot is taken from a downstream file (e.g. a branded fork), provide the upstream DS Figma URL to parse `figmaSourceKey`. Enables `⏳ PENDING FIGMA SYNC` in Gate [2] — mismatches where code matches the upstream source are flagged as pending rather than failures.
 
 **Do not ask for frame node IDs, collection names, or primitive prefixes** — these are either auto-detected or added later.
 
@@ -56,8 +56,8 @@ Also:
 With `--init`: stop after setup (print checklist, exit). Without `--init` and when called because `ds-config.json` was missing: continue the audit immediately.
 
 Once `ds-config.json` exists, extract:
-- `figmaFileKey` — Figma consumer/product file key (the file being audited)
-- `figmaSourceKey` *(optional)* — DS library source file key; when set, Phase 1 queries both files. Mismatches where code matches source but not consumer → `⏳ PENDING FIGMA SYNC` (not a gate failure). Absent = no cross-check.
+- `figmaFileKey` — Figma DS file key (the file whose tokens are being audited against the code)
+- `figmaSourceKey` *(optional)* — upstream DS source file key for cross-checking. When set, Phase 1 queries both files. Mismatches where code matches the upstream source → `⏳ PENDING FIGMA SYNC` (not a gate failure). Absent = no cross-check.
 - `frames` — array of `{ name, nodeId }` — the DS frame(s) to audit
 - `figma.colorCollection` — name of the color variable collection (e.g. `"Color"`)
 - `figma.sizingCollection` — name of the sizing collection, if any (e.g. `"Sizing"`)
@@ -438,7 +438,7 @@ For every changed or new token:
 
 Write fresh live data to both files. **Always stamp `_updated` to today's date on both snapshots**, even when no changes were detected — this is what tells Gate [1] the data is fresh. Only overwrite the `typography` section if the text-style capture returned real values (empty capture = keep existing). Always write the `aliases` section from the Phase 1 query — it is used by `parity-check.mjs` to verify CSS var chains route through the correct primitive.
 
-**Consumer file projects (`figmaSourceKey` set):** After querying the consumer file (`figmaFileKey`), also query the DS source file (`figmaSourceKey`) using the same variable script. Write the source results to `figma-vars.snapshot.json` under a `"source"` key alongside the normal `"color"` key. The source data does not replace the consumer data — both are written:
+**Projects with upstream source cross-check (`figmaSourceKey` set):** After querying the primary file (`figmaFileKey`), also query the upstream DS source file (`figmaSourceKey`) using the same variable script. Write the source results to `figma-vars.snapshot.json` under a `"source"` key alongside the normal `"color"` key. The source data does not replace the primary data — both are written:
 ```json
 {
   "_updated": "YYYY-MM-DD",
@@ -447,7 +447,7 @@ Write fresh live data to both files. **Always stamp `_updated` to today's date o
   "aliases": { ... }
 }
 ```
-`parity-check.mjs` reads `snap.source` automatically and routes mismatches where CSS matches source (but not consumer) to `⏳ PENDING FIGMA SYNC` instead of `❌ FAIL`. Gate [2] only fails on genuine divergences.
+`parity-check.mjs` reads `snap.source` automatically and routes mismatches where CSS matches the upstream source (but not the primary snapshot) to `⏳ PENDING FIGMA SYNC` instead of `❌ FAIL`. Gate [2] only fails on genuine divergences.
 
 > **⚠️ 32k output token limit:** Claude's response (including all tool call parameters) must stay under 32,000 output tokens. A snapshot for a large collection (>300 tokens) cannot be written in a single `Write` call — the JSON content alone exceeds the limit. **Always use the chunked write protocol below for large snapshots.**
 
@@ -590,7 +590,7 @@ All 14 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | Gate | Script | What it checks |
 |---|---|---|
 | [1]  | inline | **Snapshot freshness** — Is the data fresh? Always ✅ after Phase 1 runs. |
-| [2]  | `parity-check.mjs` | **Token value parity** — Do the colors, sizes, and fonts match Figma? Every token across every mode. NEW SKIP = token in Figma but no CSS var yet — treat as ❌. `⏳ PENDING FIGMA SYNC` when the consumer file hasn't pulled the latest library update (not a code bug). |
+| [2]  | `parity-check.mjs` | **Token value parity** — Do the colors, sizes, and fonts match Figma? Every token across every mode. NEW SKIP = token in Figma but no CSS var yet — treat as ❌. `⏳ PENDING FIGMA SYNC` when code matches the upstream DS source but the primary snapshot has a newer value (not a code bug — snapshot needs updating). |
 | [3]  | `structure-check.mjs` | **Structural parity** — Does the component look the way Figma says it should? Height, spacing, font, and radius must all point to the right design tokens — no hardcodes, no gaps. Also enforces `childFramePadding` HTML structure: for every entry in the structure contract's `childFramePadding[]`, grep every file in `paths.pluginCSS` for the component class and verify that any button/element containing visible text has the required child element (e.g. `<span>`) so the CSS padding rule can apply. A button with bare text instead of a wrapped child is flagged as ❌ structural mismatch — fix by wrapping the text in the required element, then rebuild and re-audit. |
 | [4]  | `bound-check.mjs` | **Bound-token coverage** — Is anything in the design that isn't in the code? Walks the Figma frames and finds tokens actively used in the design that have no CSS variable yet. |
 | [5]  | inline | **Unused CSS vars** — Are there CSS variables nobody's using? Declared-but-orphaned variables that can be safely deleted. Scans the whole repo (`.vue`, `.jsx`, `.tsx`, `.html`, `.css`, `.scss`, `.js`, `.ts`). |
@@ -812,99 +812,6 @@ Any DS-specific shortenings are documented in `parity-map.mjs` under `EXPLICIT`.
 If Figma aliases `component/background → primitives/SomeToken`, CSS must use `var(--some-token)` — never a hardcoded literal. The alias chain must be fully traceable through CSS `var()` references.
 
 Document your primitive → CSS var mapping in `parity-map.mjs` under `NEUTRAL_LIGHT` / `NEUTRAL_DARK` (two modes) or `NEUTRAL_MAPS` (three or more modes) so the resolver can follow chains automatically.
-
----
-
-# Consumer File Audit
-
----
-
-## When to use
-
-A consumer file is a Figma product file (e.g. a client project) that uses the DS as a linked library and maintains a local variable collection to override DS tokens with brand-specific values. Run this audit to find DS tokens the consumer file has not yet adopted — i.e. new tokens added to the DS after the consumer file was set up.
-
-## Usage
-
-```bash
-# Console summary only:
-node consumer-audit.mjs --file <consumerFileKey>
-
-# + Full token table as markdown:
-node consumer-audit.mjs --file GfHErcAjjw277iPunsZXCU --report-md consumer-token-status.md
-
-# + Interactive HTML report (filterable, searchable, color swatches):
-node consumer-audit.mjs --file GfHErcAjjw277iPunsZXCU --report-md consumer-token-status.md --report-html consumer-token-parity.html
-
-# Regenerate HTML from existing markdown (no API call — use when rate-limited):
-# Parse consumer-token-status.md directly and write the HTML. Read the md file,
-# split by section headers (## ✅ SYNCED / ## ⏳ PENDING UPDATE / ## 🗑 STALE),
-# parse each | token | type | Light | Dark | row, then build the HTML using the
-# template in consumer-audit.mjs --report-html. This avoids a second API call.
-```
-
-Run from the **DS project root** (where `ds-config.json` and `figma-vars.snapshot.json` live).
-
-> **Caching**: The script caches the Figma API response to `consumer-vars-cache.<fileKey>.json` after the first successful fetch. Subsequent runs read from the cache (no API call). Pass `--fresh` to force a new API fetch. The cache file is per consumer file key and should be gitignored.
-
-## Prerequisites
-
-- `FIGMA_TOKEN` in `.env` — personal access token with "File content: Read" scope. The token owner needs at least **viewer** access to the consumer file; no edit access required.
-- A fresh DS snapshot (`figma-vars.snapshot.json`) — run Phase 1 first if stale.
-
-## How it works
-
-1. Reads the DS snapshot (ground truth of all DS tokens).
-2. Calls Figma REST API `/v1/files/:consumerKey/variables/local` — **no edit access required**.
-3. Classifies collections by `remote` flag:
-   - `remote: false` → local collection (consumer's brand overrides)
-   - `remote: true`  → linked library collection (the DS)
-4. Diffs DS snapshot tokens against consumer's linked library copy + DS snapshot.
-5. Reports: tokens in each status, grouped by component prefix.
-
-## Output
-
-| Flag | Output |
-|---|---|
-| *(none)* | Console report grouped by component with counts |
-| `--report-md <file>` | Full master token table (markdown) — all types, all modes |
-| `--report-html <file>` | Interactive HTML — all collections, per-collection mode columns, filterable by status, searchable, color swatches |
-| *(always)* | `consumer-audit-report.json` — machine-readable lists for CI integration |
-
-### Variable value display
-
-All variable types are resolved:
-
-| Figma type | Display |
-|---|---|
-| COLOR | `#rrggbb` hex + color swatch |
-| FLOAT | numeric value (rounded to 2 decimal places) |
-| BOOLEAN | `true` / `false` |
-| STRING | string value |
-| VARIABLE_ALIAS | `→ alias/token/name` (one hop — shows what it aliases) |
-
-**All collections covered** — the HTML report iterates every collection in the consumer file (Theme, Breakpoint, Radius, Language, Mode Colors, local brand overrides, etc.). Each collection gets its own section with its own mode columns (e.g. Theme → Light/Dark; Breakpoint → Phone/Tablet/Desktop). The status column adds a `📁 Local` badge for consumer-local collections.
-
-**PENDING tokens** show the DS snapshot value with a `*(DS)*` suffix — so you can see what value the consumer will receive once the library update is accepted.
-
-## Interpreting results
-
-| Status | Meaning | Action |
-|---|---|---|
-| ✅ SYNCED | Token in DS snapshot AND in consumer's linked library | No action needed |
-| ⏳ PENDING UPDATE | Token in DS snapshot but missing from consumer's linked library | Consumer must accept the DS library update in Figma → Assets → Libraries |
-| 🗑 STALE | Token removed from DS, still in consumer's old linked copy | Disappears automatically when consumer accepts library update |
-| 📁 LOCAL | Token belongs to the consumer's own local collection (brand overrides) | No action — these are intentional consumer values |
-| No remote collections found | Consumer may not use this DS as a library, OR `FIGMA_TOKEN` lacks access | Verify in Figma → Assets → Libraries; check token scope |
-
-## ⚠️ Hard rule: never infer library linkage from component names
-
-**NEVER use `get_metadata` page structure or component/instance names to determine whether a consumer file uses the DS library.** Consumer files wrap DS instances in local components — wrapper names (`list-item`, `button-primary`, `card`) reveal nothing about library linkage. A consumer file's components can have the same names as DS components while being completely independent.
-
-The ONLY authoritative signals for library linkage are:
-1. `collection.remote === true` in the Figma Variables API response — used by `consumer-audit.mjs`
-2. `instance.mainComponent.remote === true` in plugin API — requires edit access via `use_figma`
-
-If `use_figma` is attempted but returns an edit-access error, **do not fall back to inferring linkage from `get_metadata`**. Fall back to the REST API approach (`consumer-audit.mjs`) instead.
 
 ---
 
