@@ -55,7 +55,7 @@ function labelKeyword(label) {
     .join(' ');
 }
 
-console.log(bold(`\nrms-parity sync-docs — source of truth: ${GATE_COUNT} gates\n`));
+console.log(bold(`\nrms-figma-code-parity sync-docs — source of truth: ${GATE_COUNT} gates\n`));
 for (const g of gates) {
   console.log(dim(`  [${String(g.n).padStart(2)}] ${g.label}  (${g.script})`));
 }
@@ -64,7 +64,8 @@ console.log('');
 // ── 2. Doc files to check ─────────────────────────────────────────────────────
 const DOCS = [
   { path: join(DIR, 'README.md'),                        label: 'README.md'       },
-  { path: join(DIR, '.claude/commands/rms-parity.md'),   label: 'rms-parity.md'  },
+  { path: join(DIR, 'rms-figma-code-parity.md'),         label: 'rms-figma-code-parity.md' },
+  { path: join(DIR, '.claude/commands/rms-figma-code-parity.md'), label: 'rms-figma-code-parity.md (commands)' },
 ];
 
 let anyStale = false;
