@@ -677,9 +677,17 @@ for (const [comp, contract] of Object.entries(CONTRACT)) {
     }
   }
 
-  // Implementation: verify each propertyMap entry's CSS selector exists
+  // Implementation: verify each propertyMap entry's CSS selector exists.
+  // null = unimplemented → FAIL for BOOLEAN/VARIANT (they require a CSS mechanism).
+  // TEXT/INSTANCE_SWAP/SLOT mapped to null = intentionally skipped (no CSS needed).
   for (const [propName, mapping] of Object.entries(contract.propertyMap)) {
-    if (mapping === null || mapping === false) continue; // explicitly skipped
+    if (mapping === null || mapping === false) {
+      const propType = figmaProps[propName]?.type;
+      if (propType === 'BOOLEAN' || propType === 'VARIANT') {
+        CPROP_FAIL.push(`${comp}/${propName}: ${propType} property has no CSS implementation (null) — add a selector or use a CSS class`);
+      }
+      continue;
+    }
 
     const pairs = typeof mapping === 'string'
       ? [['', mapping]]
@@ -810,13 +818,13 @@ if (hasCpropChecks) {
   if (CPROP_FAIL.length) {
     console.log('\n─── Gate [3g] — component property has no CSS implementation ────────');
     for (const f of CPROP_FAIL) console.log(`  ❌ ${f}`);
-    console.log('   Fix: add CSS selector/class for this component property behavior.');
-    console.log('   Map it in structure-contract.mjs → propertyMap, or set null to skip.');
+    console.log('   Fix: implement a CSS selector/class for this behavior.');
+    console.log('   null is only valid for TEXT/INSTANCE_SWAP/SLOT — BOOLEAN/VARIANT must have a selector.');
   }
   if (CPROP_WARN.length) {
     console.log('\n─── Gate [3g] — unmapped Figma component properties ─────────────────');
     for (const w of CPROP_WARN) console.log(`  ⚠️  ${w}`);
-    console.log('   Add to propertyMap in structure-contract.mjs (null = explicitly skipped).');
+    console.log('   Add to propertyMap in structure-contract.mjs.');
   }
 } else if (Object.keys(COMP_PROPS).length === 0 && Object.values(CONTRACT).some(c => c.propertyMap)) {
   console.log('\n⏭  Component props snapshot missing — run parity with FIGMA_TOKEN to populate Gate [3g]');
