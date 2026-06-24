@@ -135,7 +135,14 @@ const components = snap.components ?? {};
 const FAIL = [], PASS = [], MISSING = [];
 const SCALAR_FIELDS = ['h', 'gapVar', 'fontSizeVar', 'fontWeightVar', 'fillStructure', 'innerRadiusVar', 'strokeOnDefault'];
 
+// A CONTRACT entry is "structural" if it declares at least one structural field.
+// Entries that only carry propertyMap (no h/gapVar/etc.) skip snapshot comparison.
+function hasStructuralFields(entry) {
+  return SCALAR_FIELDS.some(f => entry[f] !== undefined) || entry.paddingVar !== undefined;
+}
+
 for (const [name, expect] of Object.entries(CONTRACT)) {
+  if (!hasStructuralFields(expect)) continue; // propertyMap-only entry — skip snapshot check
   const got = components[name];
   if (!got) { MISSING.push(name); continue; }
   for (const f of SCALAR_FIELDS) {
@@ -602,24 +609,42 @@ const CPROP_PASS = [], CPROP_FAIL = [], CPROP_WARN = [];
 // Strip them so propertyMap authors use clean names: "Show Label"
 function normPropName(k) { return k.replace(/#[\d:]+$/, '').trim(); }
 
+// Components deliberately not implemented in code — exempt from Gate [3g] FAIL.
+// Add to ds-config.json → knownUnimplementedComponents with a reason comment.
+const KNOWN_UNIMPLEMENTED = new Set(cfg.knownUnimplementedComponents ?? []);
+
 // Build lookup: figmaName → CONTRACT key (for components in CONTRACT)
 const figmaNameToContractKey = {};
 for (const [key, c] of Object.entries(CONTRACT)) {
   figmaNameToContractKey[c.figmaName ?? key] = key;
 }
 
-// Discovery: for each component that IS in CONTRACT but has no propertyMap,
-// warn if the Figma component set has BOOLEAN or VARIANT properties.
+// Discovery: FAIL for any Figma component with BOOLEAN/VARIANT properties that is
+// not covered by a propertyMap in CONTRACT and not explicitly exempted.
+// Warn (not fail) for CONTRACT components that are missing their propertyMap.
 for (const [figmaName, entry] of Object.entries(COMP_PROPS)) {
   if (figmaName === '_updated' || !entry?.properties) continue;
-  const contractKey = figmaNameToContractKey[figmaName];
-  if (!contractKey) continue; // not in CONTRACT — informational only, don't warn
-  if (CONTRACT[contractKey]?.propertyMap) continue; // already mapped
   const hasBehavioural = Object.values(entry.properties).some(
     p => p.type === 'BOOLEAN' || p.type === 'VARIANT'
   );
-  if (hasBehavioural) {
-    CPROP_WARN.push(`${contractKey}: in CONTRACT but has no propertyMap — ${
+  if (!hasBehavioural) continue;
+
+  const contractKey = figmaNameToContractKey[figmaName];
+
+  if (!contractKey) {
+    // Not in CONTRACT at all
+    if (!KNOWN_UNIMPLEMENTED.has(figmaName)) {
+      CPROP_FAIL.push(
+        `${figmaName}: Figma component has BOOLEAN/VARIANT properties but no CONTRACT entry` +
+        ` — add propertyMap or list in ds-config.json → knownUnimplementedComponents`
+      );
+    }
+    continue;
+  }
+
+  if (!CONTRACT[contractKey]?.propertyMap) {
+    // In CONTRACT but propertyMap not yet filled in
+    CPROP_WARN.push(`${contractKey}: in CONTRACT but missing propertyMap — ${
       Object.entries(entry.properties)
         .filter(([, d]) => d.type === 'BOOLEAN' || d.type === 'VARIANT')
         .map(([k]) => normPropName(k))
