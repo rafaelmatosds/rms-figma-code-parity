@@ -636,6 +636,18 @@ someComponent: {
 - **`'css-selector'`** — the annotation drives a CSS implementation. The selector string must appear in the compiled CSS. Use this when the annotation specifies a visual behavior (e.g. background, layout, color inheritance).
 - **`null`** — the annotation is prose-only guidance (e.g. accessibility notes, copy constraints). Acknowledged but no CSS required.
 
+### Reading annotations correctly
+
+Annotations describe design intent, not CSS mechanics. Read them for what they require the code to guarantee:
+
+| Annotation says | Correct CSS | Wrong CSS |
+|---|---|---|
+| "inherit from the parent surface / never leave undefined" | `background: var(--surface-token)` — always a defined value | `background: inherit` — resolves to transparent if parent has none |
+| "never visible without a label" | show/hide guard class (e.g. `.no-label .label { display: none }`) | omit the element in JS conditionally |
+| "matches the containing surface" | use the surface's token var, not a hardcoded color | `background: #1a1a1a` |
+
+**Key rule:** "inherit" in annotation prose means "take on the same value as the surface" — implement with the surface token var, not the CSS `inherit` keyword.
+
 ### Workflow when an annotation appears
 
 1. `pnpm parity` fails: `someComponent: annotation "..." not acknowledged in CONTRACT.annotations`
