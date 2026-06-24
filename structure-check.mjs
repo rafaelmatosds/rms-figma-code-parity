@@ -572,10 +572,11 @@ if (CSS_PROPERTY_ASSERTIONS.length) {
         ASSERT_FAIL.push(`${a.sel}/${a.prop}: has "${a.prop}:" — must NOT be present`);
       }
     } else if ('expectedVar' in a) {
-      // Use includes() so multi-var shorthands (e.g. padding: var(--x) var(--y)) pass for either var.
+      // Match var(--x) OR var(--x, fallback) — the closing paren moves when a fallback is present.
       const m = block?.match(propRe(a.prop));
       const fullVal = m ? m[1].trim() : null;
-      if (fullVal?.includes(`var(${a.expectedVar})`)) {
+      const varPat = new RegExp(`var\\(${a.expectedVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[,)]`);
+      if (fullVal && varPat.test(fullVal)) {
         ASSERT_PASS.push(`${a.sel}/${a.prop}`);
       } else {
         const usedVar = block ? extractPropVar(block, a.prop) : null;
