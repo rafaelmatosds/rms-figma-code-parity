@@ -490,6 +490,40 @@ if (themeCSS && Object.keys(COMPONENT_CSS_SELECTORS).length) {
   }
 }
 
+// ── Gate [3f]: Sub-frame layout (children) ───────────────────────────────────
+// Verifies gap and padding on named child frames that have explicit CSS selectors.
+// Contract: CONTRACT[comp].children = [{ name, cssSelector, gapVar?, paddingVar? }]
+// Uses allCss (all files) since child selectors may live in plugin or shared files.
+const CHILD_FAIL = [], CHILD_PASS = [];
+
+for (const [comp, contract] of Object.entries(CONTRACT)) {
+  if (!contract.children?.length) continue;
+  for (const child of contract.children) {
+    const block = findBlock(allCss, child.cssSelector, allIndex);
+    if (!block) {
+      CHILD_FAIL.push(`${comp}/${child.name}: selector "${child.cssSelector}" not found in CSS`);
+      continue;
+    }
+    if (child.gapVar) {
+      const expectedVar = FIGMA_LAYOUT_TO_CSS[child.gapVar];
+      if (expectedVar) {
+        const usedVar = extractPropVar(block, 'gap');
+        if (usedVar === expectedVar) CHILD_PASS.push(`${comp}/${child.name}/gap`);
+        else CHILD_FAIL.push(`${comp}/${child.name}/gap: "${usedVar ?? '(not set)'}" ≠ var(${expectedVar}) [${child.gapVar}]`);
+      }
+    }
+    for (const [side, tokenName] of [['tb', child.paddingVar?.tb], ['lr', child.paddingVar?.lr]]) {
+      if (!tokenName) continue;
+      const expectedVar = FIGMA_LAYOUT_TO_CSS[tokenName];
+      if (!expectedVar) continue;
+      const padMatch = block.match(/(?<![a-zA-Z-])padding\s*:\s*([^;]+)/);
+      const padVal   = padMatch?.[1] ?? '';
+      if (padVal.includes(`var(${expectedVar})`)) CHILD_PASS.push(`${comp}/${child.name}/padding-${side}`);
+      else CHILD_FAIL.push(`${comp}/${child.name}/padding-${side}: padding missing var(${expectedVar}) [${tokenName}] — got: ${padVal.trim().slice(0, 60) || '(not set)'}`);
+    }
+  }
+}
+
 // ── Gate [3e]: CSS property assertions ───────────────────────────────────────
 // Verifies arbitrary CSS properties on any selector — for plugin-specific
 // selectors that mirror DS components (e.g. buttonListRow) but aren't in CONTRACT.
@@ -531,11 +565,14 @@ if (CSS_PROPERTY_ASSERTIONS.length) {
         ASSERT_FAIL.push(`${a.sel}/${a.prop}: has "${a.prop}:" — must NOT be present`);
       }
     } else if ('expectedVar' in a) {
-      const usedVar = block ? extractPropVar(block, a.prop) : null;
-      if (usedVar === a.expectedVar) {
+      // Use includes() so multi-var shorthands (e.g. padding: var(--x) var(--y)) pass for either var.
+      const m = block?.match(propRe(a.prop));
+      const fullVal = m ? m[1].trim() : null;
+      if (fullVal?.includes(`var(${a.expectedVar})`)) {
         ASSERT_PASS.push(`${a.sel}/${a.prop}`);
       } else {
-        ASSERT_FAIL.push(`${a.sel}/${a.prop}: uses "${usedVar ?? '(not set)'}" ≠ "${a.expectedVar}"`);
+        const usedVar = block ? extractPropVar(block, a.prop) : null;
+        ASSERT_FAIL.push(`${a.sel}/${a.prop}: uses "${usedVar ?? '(not set)'}" ≠ var(${a.expectedVar})`);
       }
     }
   }
@@ -636,10 +673,21 @@ if (CSS_PROPERTY_ASSERTIONS.length) {
   }
 }
 
+if (CHILD_PASS.length + CHILD_FAIL.length > 0) {
+  const cTotal = CHILD_PASS.length + CHILD_FAIL.length;
+  console.log(`\n✅ PASS  ${CHILD_PASS.length}/${cTotal} sub-frame layout checks`);
+  console.log(`❌ FAIL  ${CHILD_FAIL.length}`);
+  if (CHILD_FAIL.length) {
+    console.log('\n─── Gate [3f] — sub-frame gap/padding mismatch ──────────────────────');
+    for (const f of CHILD_FAIL) console.log(`  ❌ ${f}`);
+    console.log('   Fix: update the child CSS selector to use the correct DS token var.');
+  }
+}
+
 const anyFail = FAIL.length > 0 || MISSING.length > 0 || CSS_FAIL.length > 0
              || VAR_FAIL.length > 0 || SELECTOR_FAIL.length > 0 || PROP_FAIL.length > 0
              || PHANTOM_FAIL.length > 0 || PILL_FAIL.length > 0
-             || BSIDES_FAIL.length > 0 || ASSERT_FAIL.length > 0;
+             || BSIDES_FAIL.length > 0 || ASSERT_FAIL.length > 0 || CHILD_FAIL.length > 0;
 
 if (!anyFail) { console.log('\nAll structural checks pass. ✓\n'); process.exit(0); }
 else { console.log(''); process.exit(1); }
