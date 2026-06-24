@@ -610,6 +610,42 @@ All 14 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 
 ---
 
+## Gate [3g] — Figma annotation parity
+
+Every Figma annotation attached to a component node is a design specification. The audit fetches `doc.annotations[]` for every component via the REST API and stores them in `figma-component-props.snapshot.json`. Gate [3g] then enforces that each annotation is acknowledged in the contract and, where applicable, verified in CSS.
+
+### How it works
+
+1. **`audit.mjs` refresh** — `refreshComponentProps()` fetches `doc.annotations[]` alongside `componentPropertyDefinitions` for every component node. Nodes with either properties **or** annotations are included in the snapshot.
+2. **Gate [3g] check** — for every component in the snapshot that has annotations, `structure-check.mjs` looks up `CONTRACT[key].annotations` and verifies each annotation label is present. Missing label → `FAIL`. If a CSS selector is provided, it must exist in the CSS — not found → `FAIL`.
+3. **`anyFail`** — annotation failures count the same as property failures; the gate exits non-zero.
+
+### CONTRACT.annotations schema
+
+```js
+// in structure-contract.mjs
+someComponent: {
+  annotations: {
+    'Exact annotation label from Figma': 'css-selector', // selector verified to exist in CSS
+    'Another annotation label':          null,            // prose-only — acknowledged, no CSS to verify
+  },
+  propertyMap: { /* ... */ },
+},
+```
+
+- **`'css-selector'`** — the annotation drives a CSS implementation. The selector string must appear in the compiled CSS. Use this when the annotation specifies a visual behavior (e.g. background, layout, color inheritance).
+- **`null`** — the annotation is prose-only guidance (e.g. accessibility notes, copy constraints). Acknowledged but no CSS required.
+
+### Workflow when an annotation appears
+
+1. `pnpm parity` fails: `someComponent: annotation "..." not acknowledged in CONTRACT.annotations`
+2. Read the annotation — decide what it requires in code
+3. Implement the CSS if needed
+4. Add to `CONTRACT.annotations` with the appropriate selector or `null`
+5. Re-run `pnpm parity` — gate must pass before closing
+
+---
+
 ## Gate [3] — childFramePadding HTML structure check
 
 When `structure-contract.mjs` has a component entry with `childFramePadding[]`, the CSS padding rule targets a child element (e.g. `.buttonTertiary span`). If the HTML renders bare text without that child element, the padding is silently missing — the CSS rule matches nothing.
@@ -858,6 +894,7 @@ After every run, report this table so the practitioner knows exactly what the au
 | No unused CSS vars | Automated (Gate [5]) | High |
 | No hardcoded values in rules | Automated (Gate [6]) | High |
 | Structural parity (height, padding, gap) | Automated (Gate [3]) | High |
+| Figma annotation acknowledgment + CSS verification | Automated (Gate [3g]) | High |
 | Sub-component isolation | Automated (Gate [8]) | High |
 | Build freshness | Automated (Gate [7]) | High |
 | Removed tokens reconciled | Manual (Phase 1 diff) | Medium — verify any "used in a rule" replacements visually |
