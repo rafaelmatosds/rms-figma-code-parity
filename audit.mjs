@@ -53,6 +53,11 @@ const WIDTH      = 60;
 const SHOW_TREND = process.argv.includes('--trend');
 const INIT_ONLY  = process.argv.includes('--init');
 
+// Set to true when variables/local returns 403 — Figma plan doesn't allow REST
+// variable access. Gates that depend on this (snapshot freshness, bound-token
+// coverage) downgrade from hard-fail to warn so CI remains useful.
+let _figmaApiLimited = false;
+
 // ── ANSI helpers (available before config loads) ──────────────────────────────
 const isTTY = process.stdout.isTTY;
 const C = {
@@ -255,7 +260,10 @@ async function buildVarIdMap(fileKey, token) {
   const res = await fetch(`https://api.figma.com/v1/files/${fileKey}/variables/local`, {
     headers: { 'X-Figma-Token': token },
   });
-  if (!res.ok) throw new Error(`variables/local returned ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 403) _figmaApiLimited = true;
+    throw new Error(`variables/local returned ${res.status}`);
+  }
   const { meta } = await res.json();
   const idToName = {};
   for (const [id, v] of Object.entries(meta?.variables ?? {})) idToName[id] = v.name;
@@ -663,6 +671,12 @@ async function bootstrapConfig() {
     if (r.status === null) return { pass: true, lines: ['⏭ bound-check.mjs not found — skipped'] };
     const out = r.stdout + r.stderr;
     if (r.status === 2) {
+      if (_figmaApiLimited) {
+        return {
+          pass: true,
+          lines: [C.yellow('⚠️  bound-tokens.json missing — variables/local returned 403 (plan limitation); skipping bound-token check')],
+        };
+      }
       return {
         pass: false,
         lines: [
@@ -727,7 +741,8 @@ async function bootstrapConfig() {
     if (vars === null) {
       lines.push(C.red(`${SNAP_VARS} missing — run /rms-parity Phase 1`)); warn = true;
     } else if (vars > 24) {
-      lines.push(C.yellow(`⚠️  ${SNAP_VARS} is ${vars}h old`)); warn = true;
+      lines.push(C.yellow(`⚠️  ${SNAP_VARS} is ${vars}h old${_figmaApiLimited ? ' (variables/local 403 — plan limitation)' : ''}`));
+      if (!_figmaApiLimited) warn = true;
     } else {
       lines.push(`${SNAP_VARS} ✓ (updated today)`);
     }
@@ -735,7 +750,8 @@ async function bootstrapConfig() {
     if (struct === null) {
       lines.push(C.red(`${SNAP_STRUCT} missing — run /rms-parity Phase 1`)); warn = true;
     } else if (struct > 24) {
-      lines.push(C.yellow(`⚠️  ${SNAP_STRUCT} is ${struct}h old`)); warn = true;
+      lines.push(C.yellow(`⚠️  ${SNAP_STRUCT} is ${struct}h old${_figmaApiLimited ? ' (variables/local 403 — plan limitation)' : ''}`));
+      if (!_figmaApiLimited) warn = true;
     } else {
       lines.push(`${SNAP_STRUCT} ✓ (updated today)`);
     }
