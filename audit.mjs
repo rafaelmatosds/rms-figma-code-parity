@@ -861,6 +861,9 @@ async function bootstrapConfig() {
     if (!PLUGINS.length) {
       return { pass: true, lines: ['⏭ No plugins configured in ds-config.json — skipped'] };
     }
+    if (process.env.CI) {
+      return { pass: true, lines: ['⏭ Build freshness skipped on CI (mtime unreliable after fresh clone)'] };
+    }
     const stale      = [];
     // Use the most recently modified token file as the freshness reference
     const themeMtime = THEMES.filter(p => existsSync(join(ROOT, p)))
