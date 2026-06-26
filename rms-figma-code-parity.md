@@ -742,6 +742,43 @@ Compare results against your `structure-contract.mjs`. Any drift → update cont
 
 **Adding a new component to the contract:** when a component graduates from `knownUnimplementedComponents` to a real contract entry, the contract and the `figma-structure.snapshot.json` must declare the **exact same set of structural fields** (`h`, `gapVar`, `paddingVar`, `fontSizeVar`, `fontWeightVar`, `fillStructure`, `innerInset`, `innerRadiusVar`, `strokeOnDefault`, `strokeOnAnyState`). Gate [3] compares them field-by-field — a field present in the snapshot but absent (`undefined`) in the contract is a divergence even if both values would be `null`. Always include all structural fields in the contract explicitly, setting unknown/inapplicable ones to `null`.
 
+**After adding structural fields, wire up CSS enforcement — or the fields are documentation only.** Gate [3] verifies that the contract and snapshot agree with each other, but it does NOT automatically verify that the CSS implements those values. You must explicitly wire each structural fact into a CSS check:
+
+1. **`CSS_HEIGHT_RULES`** — for every component where `h` is a fixed number (not `null` or `'auto'`), add an entry:
+   ```js
+   export const CSS_HEIGHT_RULES = {
+     myComponent: { selector: '.myComponent', prop: 'height' },   // h is fixed
+     myOther:     { selector: '.myOther',     prop: 'min-height' }, // h is a minimum
+   };
+   ```
+   Gate [3] verifies the declared selector has a `height`/`min-height` rule that uses the right token var (via `FIGMA_LAYOUT_TO_CSS`). A component with `h: 24` in the snapshot but no `CSS_HEIGHT_RULES` entry means Gate [3] will never catch a CSS height regression.
+
+2. **`COMPONENT_CSS_SELECTORS`** — for every component in `CSS_HEIGHT_RULES`, add a matching entry so Gate [3] knows which CSS selector to check for padding, gap, and radius:
+   ```js
+   export const COMPONENT_CSS_SELECTORS = {
+     myComponent: { main: '.myComponent' },
+   };
+   ```
+   Without this, Gate [3] skips padding and gap binding checks for the component entirely.
+
+3. **`CSS_PROPERTY_ASSERTIONS`** — use this for any structural constraint that Gate [3] cannot auto-verify from the root binding alone. Common cases:
+   - `gapVar` or `paddingVar` that is bound on a **child frame** (not the root) — the snapshot records `null` but CSS must still use the right var
+   - `innerRadiusVar` — verify `border-radius` on the right selector uses the correct var
+   - Explicit value checks (`expected: '40px'`) when Figma doesn't use a variable but the DS still mandates a specific value
+   ```js
+   { sel: '.myComponent', prop: 'gap',           expectedVar: '--gap-s'       },
+   { sel: '.myComponent', prop: 'border-radius', expectedVar: '--radius-full' },
+   { sel: '.myComponent', prop: 'height',        expected:    '24px'          },
+   ```
+
+**Checklist for every new contract entry:**
+- [ ] All structural fields in contract match snapshot (Gate [3a])
+- [ ] `CSS_HEIGHT_RULES` entry if `h` is a fixed number
+- [ ] `COMPONENT_CSS_SELECTORS` entry (required for padding/gap/radius checks)
+- [ ] `CSS_PROPERTY_ASSERTIONS` for any padding/gap/radius/height that isn't auto-verifiable from the root binding
+- [ ] `propertyMap` for every Figma variant/state property
+- [ ] Run `node scripts/structure-check.mjs` and confirm ✅ PASS X/X (X = total contract count)
+
 **State/variant selectors — full chain:** for every non-default Figma state or variant property value (Hover, Disabled, Selected, Size=Small, etc.), document in `structure-contract.mjs → STATE_SELECTORS`:
 - `selector` — the CSS selector that activates this state
 - `vars` — for each visual property in this state, the exact token var that must be used
