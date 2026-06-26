@@ -26,8 +26,9 @@
 //   [12] Mode completeness      — all mode-variant tokens adapt across every configured mode
 //   [13] CSS naming round-trip  — every theme.css var traces back to a Figma token
 //   [14] Pseudo-element audit   — every ::before/::after with content declared in contract
+//   [15] SVG symbol audit       — every <symbol> in HTML files declared in contract (DS icon or PLUGIN-SPECIFIC)
 //
-// Performance: gates 2–4, 8–14 (subprocess-based) run in parallel via Promise.all.
+// Performance: gates 2–4, 8–15 (subprocess-based) run in parallel via Promise.all.
 
 import readline                                                  from 'readline';
 import { spawn, spawnSync }                                      from 'child_process';
@@ -908,7 +909,7 @@ async function bootstrapConfig() {
   addGate('Snapshot freshness', computeGate1());
 
   // Gates 2–4, 8–13 — all subprocess-based; launch concurrently
-  const [r2, r3, r4, r8, r9, r10, r11, r12, r13, r14] = await Promise.all([
+  const [r2, r3, r4, r8, r9, r10, r11, r12, r13, r14, r15] = await Promise.all([
     runScriptAsync('parity-check.mjs', ['--json']),
     runScriptAsync('structure-check.mjs'),
     runScriptAsync('bound-check.mjs'),
@@ -919,6 +920,7 @@ async function bootstrapConfig() {
     runScriptAsync('mode-completeness-check.mjs'),
     runScriptAsync('naming-check.mjs'),
     runScriptAsync('pseudo-element-check.mjs'),
+    runScriptAsync('icon-check.mjs'),
   ]);
 
   addGate('Token parity  (color · sizing · typography)',               parseGate2(r2));
@@ -934,6 +936,7 @@ async function bootstrapConfig() {
   addGate('Mode completeness  (all mode-variant tokens adapt across every configured mode)', parseGeneric(r12, /ADAPTS|STATIC|SKIPPED/));
   addGate('CSS naming round-trip  (every var traceable to a Figma token)', parseGeneric(r13, /TRACEABLE|UNINVENTED/));
   addGate('Pseudo-element audit  (::before/::after content declared in contract)', parseGeneric(r14, /DOCUMENTED|UNDOCUMENTED/));
+  addGate('SVG symbol audit      (<symbol> elements declared as DS ICON or PLUGIN-SPECIFIC)', parseGeneric(r15, /DOCUMENTED|UNDOCUMENTED/));
 
   // ── Final report ──────────────────────────────────────────────────────────────
   console.log('\n' + C.bold('─'.repeat(WIDTH)));

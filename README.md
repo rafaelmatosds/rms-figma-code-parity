@@ -2,7 +2,7 @@
 
 A Claude Code skill + automated scripts for continuous Figma DS ↔ CSS code parity auditing.
 
-Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase 1 refreshes the live Figma snapshot, Phase 2 runs 14 automated gates. You can never accidentally audit against a stale snapshot.
+Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase 1 refreshes the live Figma snapshot, Phase 2 runs 15 automated gates. You can never accidentally audit against a stale snapshot.
 
 > **Sister skill:** [rms-figma-sync](https://github.com/rafaelmatosds/rms-figma-sync) — checks whether a consumer Figma product file is in sync with the DS library. Use that for design handoff validation; use this one for code implementation validation.
 
@@ -13,9 +13,9 @@ Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase
 | Phase | What happens |
 |---|---|
 | **1 — Figma Refresh** | Queries live Figma (color, sizing, typography, component structure), diffs against stored snapshots, reports changes, writes updated snapshots, verifies resolvers pass |
-| **2 — Code Parity** | Runs all 14 automated gates, component deep-walk, HTML parity report |
+| **2 — Code Parity** | Runs all 15 automated gates, component deep-walk, HTML parity report |
 
-**14 automated gates:**
+**15 automated gates:**
 
 | Gate | Script | What it checks |
 |---|---|---|
@@ -74,9 +74,9 @@ Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase
 
 ```
 ─── Parity Trend ───────────────────────────────────────────
-  ✅  2026-06-15  14/14 [██████████████]
-  ❌  2026-06-16  11/13 [████████████░░]
-  ✅  2026-06-17  14/14 [██████████████]
+  ✅  2026-06-15  15/15 [███████████████]
+  ❌  2026-06-16  11/13 [█████████████░░]
+  ✅  2026-06-17  15/15 [███████████████]
 ────────────────────────────────────────────────────────────
 ```
 

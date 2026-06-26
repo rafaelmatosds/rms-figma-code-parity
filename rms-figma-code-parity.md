@@ -536,7 +536,7 @@ This replaces the previous Plugin API walk. Gate [4] (`bound-check.mjs`) reads `
 node scripts/audit.mjs
 ```
 
-All 14 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
+All 15 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 
 | Gate | Script | What it checks |
 |---|---|---|
@@ -554,6 +554,7 @@ All 14 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | [12] | `mode-completeness-check.mjs` | **Mode completeness** — Do all modes actually adapt? Verifies that every token meant to vary between modes actually does — light vs dark, compact vs comfortable spacing, any breakpoint or density mode your DS defines. Nothing should be frozen at the same value across modes that are supposed to differ. |
 | [13] | `naming-check.mjs` | **CSS naming round-trip** — Do all CSS variable names trace back to a real Figma token? Catches variables someone invented that have no counterpart in the design system. |
 | [14] | `pseudo-element-check.mjs` | **Pseudo-element audit** — Are decorative `::before` / `::after` elements documented? Any visual element added via CSS pseudo-elements must be declared in the component's structure contract so it doesn't silently drift. |
+| [15] | `icon-check.mjs` | **SVG symbol audit** — Are all `<symbol>` elements in plugin HTML files declared in `ICON_SYMBOLS` in `structure-contract.mjs`? DS icons must record a Figma node ID; custom icons must be marked `PLUGIN-SPECIFIC`. Prevents hand-drawn paths from silently replacing DS-sourced SVGs. |
 
 **Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 
@@ -900,6 +901,44 @@ With `FIGMA_TOKEN` set, `pnpm parity` is fully self-contained: it auto-refreshes
 
 ---
 
+## Gate [15] — SVG symbol audit
+
+Every `<symbol>` element in any plugin HTML file must be declared in `ICON_SYMBOLS` in `structure-contract.mjs`. Undocumented symbols fail the gate.
+
+**DS icons** must record the Figma node ID so the path is traceable back to source. Always fetch the path from Figma via MCP (`get_design_context` + `curl` the asset URL) — never hand-draw.
+
+**Plugin-specific icons** must be marked `PLUGIN-SPECIFIC` with a description of their visual purpose.
+
+```js
+// structure-contract.mjs
+export const ICON_SYMBOLS = {
+  // DS icon — string form (no transform required)
+  'icon-close': 'DS ICON — Icon/Close node 123-456; X mark',
+
+  // DS icon — object form with transform + size
+  'icon-fit': { desc: 'DS ICON — Icon/Fit node 149-101965; four outward-pointing arrows', transform: 'rotate(-45 7.081 7.081)', size: 16 },
+
+  // Plugin-specific — custom icon with no DS backing
+  'icon-type-text': 'PLUGIN-SPECIFIC — Figma "T" text node type indicator; issue list',
+};
+```
+
+**Object form:** use `{ desc, transform?, size? }` for DS icons that require additional checks:
+
+- **`transform`** — when the Figma component wraps the SVG path in a rotation (visible as `-rotate-X` in the Figma component code). The gate verifies a `<g transform="...">` with that exact value is present inside the `<symbol>`. Prevents correct path + wrong orientation.
+- **`size`** — the DS-specified icon container size in pixels (e.g. `16`). The gate finds every `<svg width="N" height="N"><use href="#id">` in HTML files and verifies `N === size`. Catches icons rendered at the wrong pixel dimensions.
+
+**When the gate fails:**
+- Undocumented symbol → fetch from Figma, add contract entry
+- Missing transform → wrap `<path>` in `<g transform="...">` matching the contract value
+- Wrong render size → update the `<svg width="N" height="N">` wrapping `<use href="#id">` to match the contract `size`
+
+**Every new implementation edge case must add a gate check** — fix the code AND extend the contract/gate so the same mistake cannot recur silently.
+
+**Never add a `DS ICON` entry without verifying the path came from Figma** — that would defeat the purpose of the gate.
+
+---
+
 ## End-of-Run Confidence Summary
 
 After every run, report this table so the practitioner knows exactly what the audit guarantees:
@@ -918,6 +957,7 @@ After every run, report this table so the practitioner knows exactly what the au
 | Build freshness | Automated (Gate [7]) | High |
 | Removed tokens reconciled | Manual (Phase 1 diff) | Medium — verify any "used in a rule" replacements visually |
 | Component states fully wired | Automated (Gate [10]) | High |
+| SVG symbols sourced from DS | Automated (Gate [15] — ICON_SYMBOLS contract) | High if all symbols documented |
 | Visual regression | Automated (Gate [9], requires FIGMA_TOKEN) or Manual (Step 7 screenshots) | **Not run** if neither is configured |
 | CI enforcement | GitHub Actions (`.github/workflows/parity.yml`) | High if configured |
 
