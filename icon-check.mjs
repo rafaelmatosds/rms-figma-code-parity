@@ -45,19 +45,21 @@ try {
   if (m.ICON_SYMBOLS && typeof m.ICON_SYMBOLS === 'object') ALLOWED = m.ICON_SYMBOLS;
 } catch { /* optional export */ }
 
-function entryDesc(val)      { return typeof val === 'string' ? val : val.desc; }
-function entryTransform(val) { return typeof val === 'string' ? null : (val.transform ?? null); }
-function entrySize(val)      { return typeof val === 'string' ? null : (val.size ?? null); }
+function entryDesc(val)       { return typeof val === 'string' ? val : val.desc; }
+function entryTransform(val)  { return typeof val === 'string' ? null : (val.transform  ?? null); }
+function entrySize(val)       { return typeof val === 'string' ? null : (val.size       ?? null); }
+function entryStrokeNone(val) { return typeof val === 'string' ? false : (val.strokeNone ?? false); }
 
 // ── Extract <symbol id="...">...</symbol> blocks from HTML files ──────────────
 // Captures the full symbol body so we can check for transform attributes.
 const SYMBOL_BLOCK_RE = /<symbol\s([^>]*)>([\s\S]*?)<\/symbol>/g;
 const ID_RE           = /\bid="([^"]+)"/;
 
-const documented   = [];
-const undocumented = [];
+const documented     = [];
+const undocumented   = [];
 const transformFails = [];
-const sizeFails    = [];
+const sizeFails      = [];
+const strokeFails    = [];
 
 for (const srcPath of HTML_SOURCES) {
   const text = readFileSync(join(ROOT, srcPath), 'utf8');
@@ -75,15 +77,27 @@ for (const srcPath of HTML_SOURCES) {
       continue;
     }
 
-    const desc         = entryDesc(val);
-    const reqTransform = entryTransform(val);
-    const reqSize      = entrySize(val);
+    const desc           = entryDesc(val);
+    const reqTransform   = entryTransform(val);
+    const reqSize        = entrySize(val);
+    const reqStrokeNone  = entryStrokeNone(val);
 
     if (reqTransform) {
       const hasTransform = body.includes(`transform="${reqTransform}"`) ||
                            body.includes(`transform='${reqTransform}'`);
       if (!hasTransform) {
         transformFails.push({ id, reqTransform, file: srcPath, desc });
+        continue;
+      }
+    }
+
+    if (reqStrokeNone) {
+      // Verify the symbol body contains stroke="none" on a path/shape element.
+      // This prevents CSS-inherited stroke (e.g. .buttonTertiary svg { stroke: ... })
+      // from making fill-only icons appear thicker in button contexts than elsewhere.
+      const hasStrokeNone = /stroke="none"/.test(body) || /stroke='none'/.test(body);
+      if (!hasStrokeNone) {
+        strokeFails.push({ id, file: srcPath, desc });
         continue;
       }
     }
@@ -133,6 +147,7 @@ const allFails = [
   ...undocumented.map(r => ({ ...r, kind: 'undocumented' })),
   ...transformFails.map(r => ({ ...r, kind: 'transform' })),
   ...sizeFails.map(r => ({ ...r, kind: 'size' })),
+  ...strokeFails.map(r => ({ ...r, kind: 'stroke' })),
 ];
 
 if (allFails.length === 0) {
@@ -166,6 +181,17 @@ if (sizeFails.length) {
     console.log(`   ❌ "#${r.id}"  in ${r.file}`);
     console.log(`      Contract requires: ${r.reqSize}×${r.reqSize}  —  found: ${r.actual}`);
     console.log(`      → The DS component specifies a ${r.reqSize}px container. Update the <svg width="${r.reqSize}" height="${r.reqSize}"> that wraps <use href="#${r.id}">.\n`);
+  }
+}
+
+if (strokeFails.length) {
+  console.log(`❌ MISSING STROKE=NONE  ${strokeFails.length}  (fill-only DS icons missing stroke="none" guard)\n`);
+  for (const r of strokeFails) {
+    console.log(`   ❌ "#${r.id}"  in ${r.file}`);
+    console.log(`      Contract requires strokeNone: true — no stroke="none" found on any element inside the symbol.`);
+    console.log(`      → Broad CSS rules (e.g. .buttonTertiary svg { stroke: ... }) will inherit stroke into fill-only`);
+    console.log(`        paths, making the icon appear thicker in button contexts than in other contexts.`);
+    console.log(`        Add stroke="none" to the <path> inside the symbol to prevent inherited stroke.\n`);
   }
 }
 

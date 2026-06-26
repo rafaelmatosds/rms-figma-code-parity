@@ -530,7 +530,7 @@ This replaces the previous Plugin API walk. Gate [4] (`bound-check.mjs`) reads `
 
 ---
 
-## Phase 2 — Step 2: Run all 14 audit gates
+## Phase 2 — Step 2: Run all 15 audit gates
 
 ```bash
 node scripts/audit.mjs
@@ -915,23 +915,25 @@ export const ICON_SYMBOLS = {
   // DS icon — string form (no transform required)
   'icon-close': 'DS ICON — Icon/Close node 123-456; X mark',
 
-  // DS icon — object form with transform + size
-  'icon-fit': { desc: 'DS ICON — Icon/Fit node 149-101965; four outward-pointing arrows', transform: 'rotate(-45 7.081 7.081)', size: 16 },
+  // DS icon — object form with transform + size + strokeNone
+  'icon-fit': { desc: 'DS ICON — Icon/Fit node 149-101965; four outward-pointing arrows', transform: 'rotate(-45 7.081 7.081)', size: 16, strokeNone: true },
 
   // Plugin-specific — custom icon with no DS backing
   'icon-type-text': 'PLUGIN-SPECIFIC — Figma "T" text node type indicator; issue list',
 };
 ```
 
-**Object form:** use `{ desc, transform?, size? }` for DS icons that require additional checks:
+**Object form:** use `{ desc, transform?, size?, strokeNone? }` for DS icons that require additional checks:
 
 - **`transform`** — when the Figma component wraps the SVG path in a rotation (visible as `-rotate-X` in the Figma component code). The gate verifies a `<g transform="...">` with that exact value is present inside the `<symbol>`. Prevents correct path + wrong orientation.
 - **`size`** — the DS-specified icon container size in pixels (e.g. `16`). The gate finds every `<svg width="N" height="N"><use href="#id">` in HTML files and verifies `N === size`. Catches icons rendered at the wrong pixel dimensions.
+- **`strokeNone: true`** — for fill-only DS icons that appear inside contexts with broad CSS stroke rules (e.g. `.buttonTertiary svg { stroke: var(--buttonTertiary-text) }`). The gate verifies the symbol body contains `stroke="none"` on a shape element. Without this, the CSS-inherited stroke adds unintended visual weight, making the icon appear thicker in button contexts than in other contexts (overlay labels, etc.).
 
 **When the gate fails:**
 - Undocumented symbol → fetch from Figma, add contract entry
 - Missing transform → wrap `<path>` in `<g transform="...">` matching the contract value
 - Wrong render size → update the `<svg width="N" height="N">` wrapping `<use href="#id">` to match the contract `size`
+- Missing stroke guard → add `stroke="none"` to the `<path>` inside the symbol
 
 **Every new implementation edge case must add a gate check** — fix the code AND extend the contract/gate so the same mistake cannot recur silently.
 
