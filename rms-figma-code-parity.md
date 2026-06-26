@@ -112,7 +112,7 @@ Use these throughout all Figma queries. Never hardcode collection or mode names.
 | `figma-vars.snapshot.json` | color (all modes), sizing, typography | `paths.snapshotVars` |
 | `figma-structure.snapshot.json` | per-component State=Default structure | `paths.snapshotStructure` |
 
-Both are machine-generated — never hand-edit. `bound-tokens.json` and `component-state-tokens.json` (project root, gitignored) are auto-generated on every `pnpm parity` run when `FIGMA_TOKEN` is set — no manual step needed.
+Both are machine-generated — never hand-edit. `component-state-tokens.json` (project root, gitignored) is auto-generated on every `pnpm parity` run when `FIGMA_TOKEN` is set. `bound-tokens.json` is **committed** — it is refreshed via REST when available, or via Plugin API and committed manually when the REST API returns 403 (Professional plan).
 
 **Audit history** is appended to `parity-history.json` at project root after every run. View trend: `node scripts/audit.mjs --trend`.
 
@@ -123,7 +123,7 @@ Both are machine-generated — never hand-edit. `bound-tokens.json` and `compone
 | Phase | Step | Purpose | Must pass |
 |---|---|---|---|
 | **1** | **Figma Refresh** | **Query live Figma, diff snapshots, overwrite both files, verify resolvers** | **Snapshots fresh; every change reconciled** |
-| **2** | **`node scripts/audit.mjs`** | **All 14 gates — snapshot + bound tokens auto-refreshed via REST API** | **0 ❌ gates** |
+| **2** | **`node scripts/audit.mjs`** | **All 15 gates — snapshot auto-refreshed; bound tokens from REST or committed snapshot** | **0 ❌ gates** |
 | 2 | Component walk | Deep per-component inspection of all states, vars, tokens | 0 new divergences |
 | 2 | Master Token Table | Single source of truth with resolved hex for every token | 0 ❌ rows |
 
@@ -519,16 +519,53 @@ Print tokens changed/added/removed per section, which CSS vars need updating, co
 
 ---
 
-## Phase 2 — Bound token walk (auto)
+## Phase 2 — Bound token walk
 
-**No manual step needed.** `audit.mjs` auto-generates `bound-tokens.json` on every run by calling:
+`bound-tokens.json` is a **committed snapshot** — works on any Figma plan, including CI.
 
-1. `GET /v1/files/{key}/variables/local` → builds variable ID → name map
-2. For each frame in `ds-config.json frames[]`, `GET /v1/files/{key}/nodes?ids={nodeId}` → walks the full subtree, collecting every `boundVariables` reference
+### Auto-refresh (Enterprise — REST API available)
 
-This replaces the previous Plugin API walk. Gate [4] (`bound-check.mjs`) reads `bound-tokens.json` as before — format is unchanged.
+`audit.mjs` regenerates it on every run automatically:
+1. `GET /v1/files/{key}/variables/local` → variable ID → name map
+2. For each frame in `ds-config.json frames[]`, `GET /v1/files/{key}/nodes?ids={nodeId}` → walks subtree, collecting every `boundVariables` reference
 
-**If the auto-refresh fails** (no `FIGMA_TOKEN`, or 403): Gate [4] uses whatever `bound-tokens.json` already exists on disk. If the file is missing entirely, Gate [4] hard-fails (exit 2). Set `FIGMA_TOKEN` and ensure `ds-config.json` has `frames[]` entries to enable auto-refresh.
+### Plugin API refresh (Professional plan — REST returns 403)
+
+When the REST API returns 403, run this in Figma (via `use_figma` or the Plugin console), then save the output as `bound-tokens.json` and commit it:
+
+```js
+const collections = await figma.variables.getLocalVariableCollectionsAsync();
+const idToName = {};
+for (const col of collections) {
+  for (const id of col.variableIds) {
+    const v = await figma.variables.getVariableByIdAsync(id);
+    if (v) idToName[id] = v.name;
+  }
+}
+function collectBound(node, out) {
+  if (!node) return;
+  const bv = node.boundVariables ?? {};
+  for (const val of Object.values(bv)) {
+    const entries = Array.isArray(val) ? val : [val];
+    for (const e of entries) {
+      if (e?.type === 'VARIABLE_ALIAS' && idToName[e.id]) out.add(idToName[e.id]);
+    }
+  }
+  for (const child of node.children ?? []) collectBound(child, out);
+}
+// Frame node IDs from ds-config.json frames[]
+const FRAME_IDS = ['308-10425', '42-210732', '106-36547']; // update per project
+const tokenSet = new Set();
+for (const id of FRAME_IDS) {
+  const node = await figma.getNodeByIdAsync(id);
+  if (node) collectBound(node, tokenSet);
+}
+return Object.fromEntries([...tokenSet].map(t => [t, true]));
+```
+
+Save the returned JSON as `bound-tokens.json` at project root and commit it. Run this whenever DS frames change significantly.
+
+**If `bound-tokens.json` is missing entirely:** Gate [4] hard-fails. Generate it via one of the two methods above.
 
 ---
 

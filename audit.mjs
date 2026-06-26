@@ -675,7 +675,7 @@ async function bootstrapConfig() {
       if (_figmaApiLimited) {
         return {
           pass: true,
-          lines: [C.yellow('⚠️  bound-tokens.json missing — variables/local returned 403 (plan limitation); skipping bound-token check')],
+          lines: [C.yellow('⚠️  bound-tokens.json missing — variables/local 403 and no committed snapshot; run /rms-figma-code-parity Phase 1 locally to generate it')],
         };
       }
       return {
@@ -685,6 +685,13 @@ async function bootstrapConfig() {
           C.red('   Set FIGMA_TOKEN and ensure ds-config.json has frames[] to auto-generate it.'),
         ],
       };
+    }
+    if (_figmaApiLimited) {
+      // REST refresh failed (403) but committed snapshot was used — note it as a warning
+      const pass = r.status === 0;
+      const summary = (r.stdout + r.stderr).split('\n').filter(l => /COVERED|UNCOVERED/.test(l) && l.trim()).map(l => l.trim());
+      const failDetails = pass ? [] : (r.stdout + r.stderr).split('\n').filter(l => l.trim().startsWith('❌')).map(l => '  ' + l.trim()).slice(0, 20);
+      return { pass, lines: [C.yellow('⚠️  variables/local 403 — using committed bound-tokens.json snapshot'), ...summary, ...failDetails] };
     }
     const pass       = r.status === 0;
     const summary    = out.split('\n').filter(l => /COVERED|UNCOVERED/.test(l) && l.trim()).map(l => l.trim());
@@ -757,9 +764,9 @@ async function bootstrapConfig() {
       lines.push(`${SNAP_STRUCT} ✓ (updated today)`);
     }
 
-    // bound-tokens.json and component-state-tokens.json are auto-generated each
-    // run when FIGMA_TOKEN is set — no staleness check needed here. Gate [4] and
-    // Gate [10] hard-fail (exit 2) if the files are absent.
+    // bound-tokens.json is committed as a snapshot and updated via REST (when available)
+    // or Plugin API (when REST returns 403). Gate [4] uses the committed file on CI.
+    // Gate [10] / component-state-tokens.json is still auto-generated each run.
     return { pass: !warn, lines };
   }
 
