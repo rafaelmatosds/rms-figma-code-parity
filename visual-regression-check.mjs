@@ -52,7 +52,8 @@ mkdirSync(REFS_DIR, { recursive: true });
 // Normalize to ':' for the API, use '-' for filenames.
 const nodeIds   = FRAMES.map(f => f.nodeId.replace(/-/, ':')); // only first dash → colon
 const idsParam  = encodeURIComponent(nodeIds.join(','));
-const apiUrl    = `https://api.figma.com/v1/images/${FILE_KEY}?ids=${idsParam}&format=png&scale=2`;
+const SCALE     = cfg.visualRefScale ?? 2;
+const apiUrl    = `https://api.figma.com/v1/images/${FILE_KEY}?ids=${idsParam}&format=png&scale=${SCALE}`;
 
 let imageUrls = {};
 try {
