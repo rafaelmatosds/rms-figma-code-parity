@@ -331,7 +331,7 @@ if (themeCSS && Object.keys(COMPONENT_CSS_SELECTORS).length) {
       check('gap', gapBlock, 'gap', FIGMA_LAYOUT_TO_CSS[contract.gapVar], selCfg.gapSel ?? selCfg.main);
     if (contract.paddingVar?.tb && !selCfg.skipTBPadding)
       check('padding-tb', mainBlock, 'padding', FIGMA_LAYOUT_TO_CSS[contract.paddingVar.tb], selCfg.main);
-    if (contract.paddingVar?.lr)
+    if (contract.paddingVar?.lr && !selCfg.skipLRPadding)
       check('padding-lr', mainBlock, 'padding', FIGMA_LAYOUT_TO_CSS[contract.paddingVar.lr], selCfg.main);
     if (contract.fontSizeVar)
       check('font-size', fontBlock, 'font-size', FONT_SCALE_TO_CSS[contract.fontSizeVar]?.size, selCfg.fontSel ?? selCfg.main);
