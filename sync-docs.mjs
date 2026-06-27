@@ -112,14 +112,12 @@ for (const doc of DOCS) {
     return match;
   });
 
-  // ── Check: each gate's script name or label keyword appears in the doc.
-  // For subprocess gates, the script filename is the most reliable anchor.
-  // For inline gates, fall back to the first two words of the label.
+  // ── Check: each gate's label keyword appears in the doc.
+  // Always checks by label keyword (first 3 words of the label) so docs can be
+  // written in plain English without exposing internal script filenames.
   const missingLabels = gates
     .map(g => {
-      const anchor = g.script !== 'inline'
-        ? g.script                         // e.g. "parity-check.mjs"
-        : labelKeyword(g.label);           // e.g. "Snapshot freshness"
+      const anchor = labelKeyword(g.label); // e.g. "Freshness", "Token parity", "CSS hygiene"
       return { g, anchor };
     })
     .filter(({ anchor }) => anchor && !original.includes(anchor))

@@ -581,7 +581,7 @@ All 12 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | Gate | Script | What it checks |
 |---|---|---|
 | [1]  | inline | **Freshness** — Snapshot files pulled today and compiled outputs not older than source. Always ✅ after Phase 1 runs. |
-| [2]  | `parity-check.mjs` | **Token value parity** — Every token across every mode matches Figma. NEW SKIP = token in Figma but no CSS var yet — treat as ❌. `⏳ PENDING FIGMA SYNC` when code matches the upstream DS source but the primary snapshot has a newer value (not a code bug). |
+| [2]  | `parity-check.mjs` | **Token parity** — Every token across every mode matches Figma. NEW SKIP = token in Figma but no CSS var yet — treat as ❌. `⏳ PENDING FIGMA SYNC` when code matches the upstream DS source but the primary snapshot has a newer value (not a code bug). |
 | [3]  | `structure-check.mjs` | **Structural parity** — Height, spacing, font, and radius all point to the right design tokens — no hardcodes, no gaps. Also enforces `childFramePadding` HTML structure: text-bearing buttons must wrap text in the required child element (e.g. `<span>`) so CSS padding applies. |
 | [4]  | `bound-check.mjs` | **Bound-token coverage** — Every token actively used in the Figma frames has a CSS variable. |
 | [5]  | inline | **CSS hygiene** — No declared-but-orphaned CSS vars (unused weight) and no raw literal values in CSS rules (hardcoded hex, px, etc.). Intentional exceptions in `ds-config.json → knownHardcodedExceptions`. |
