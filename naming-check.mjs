@@ -1,7 +1,7 @@
-// naming-check.mjs — Gate [13]: CSS var naming round-trip.
-// Every CSS var declared in theme.css must trace back to a Figma token in the
-// snapshot (via convention or EXPLICIT) or be on the SYSTEM_VARS / KNOWN_INTERNAL
-// exemption list in parity-map.mjs.
+// naming-check.mjs — Gate [11]: CSS var naming round-trip.
+// Every CSS var declared in ANY project CSS file (theme.css + pluginCSS) must
+// trace back to a Figma token in the snapshot (via convention or EXPLICIT) or
+// be on the SYSTEM_VARS exemption list in parity-map.mjs.
 //
 // Direction: CSS → Figma (reverse of Gates [2] and [4]).
 // A var with no Figma backing is either hallucinated or needs to be documented.
@@ -67,9 +67,19 @@ for (const token of figmaTokens) {
   knownCSSVars.add(conventionVar(token.replace(/\/color$/, '')));
 }
 
-// ── Collect declared CSS vars from all token files ────────────────────────────
-const rawCss = THEME_PATHS.filter(p => existsSync(join(ROOT, p)))
-  .map(p => readFileSync(join(ROOT, p), 'utf8')).join('\n')
+// ── Collect declared CSS vars from all CSS files ──────────────────────────────
+// Scans theme.css + every pluginCSS file. <script> blocks are stripped from
+// HTML files first so JS object literals don't produce false positives.
+function readCssContent(p) {
+  let src = readFileSync(join(ROOT, p), 'utf8');
+  if (p.endsWith('.html')) src = src.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  return src;
+}
+
+const rawCss = [...THEME_PATHS, ...PLUGIN_CSS]
+  .filter(p => existsSync(join(ROOT, p)))
+  .map(readCssContent)
+  .join('\n')
   .replace(/\/\*[\s\S]*?\*\//g, '');
 const declared = new Set();
 for (const m of rawCss.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*)\s*:/g)) declared.add('--' + m[1]);
