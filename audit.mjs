@@ -27,8 +27,10 @@
 //   [13] CSS naming round-trip  — every theme.css var traces back to a Figma token
 //   [14] Pseudo-element audit   — every ::before/::after with content declared in contract
 //   [15] SVG symbol audit       — every <symbol> in HTML files declared in contract (DS icon or PLUGIN-SPECIFIC)
+//   [16] State selector coverage — every CONTRACT.propertyMap selector has a CSS rule
+//   [17] State var placement    — state-suffix vars (-hover/-selected/-disabled/-focus/-checked) only in state selectors
 //
-// Performance: gates 2–4, 8–15 (subprocess-based) run in parallel via Promise.all.
+// Performance: gates 2–4, 8–17 (subprocess-based) run in parallel via Promise.all.
 
 import readline                                                  from 'readline';
 import { spawn, spawnSync }                                      from 'child_process';
@@ -915,8 +917,8 @@ async function bootstrapConfig() {
   // Gate 1 — sync (file stat only)
   addGate('Snapshot freshness', computeGate1());
 
-  // Gates 2–4, 8–13 — all subprocess-based; launch concurrently
-  const [r2, r3, r4, r8, r9, r10, r11, r12, r13, r14, r15] = await Promise.all([
+  // Gates 2–4, 8–17 — all subprocess-based; launch concurrently
+  const [r2, r3, r4, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17] = await Promise.all([
     runScriptAsync('parity-check.mjs', ['--json']),
     runScriptAsync('structure-check.mjs'),
     runScriptAsync('bound-check.mjs'),
@@ -928,6 +930,8 @@ async function bootstrapConfig() {
     runScriptAsync('naming-check.mjs'),
     runScriptAsync('pseudo-element-check.mjs'),
     runScriptAsync('icon-check.mjs'),
+    runScriptAsync('state-binding-check.mjs'),
+    runScriptAsync('component-selector-check.mjs'),
   ]);
 
   addGate('Token parity  (color · sizing · typography)',               parseGate2(r2));
@@ -944,6 +948,8 @@ async function bootstrapConfig() {
   addGate('CSS naming round-trip  (every var traceable to a Figma token)', parseGeneric(r13, /TRACEABLE|UNINVENTED/));
   addGate('Pseudo-element audit  (::before/::after content declared in contract)', parseGeneric(r14, /DOCUMENTED|UNDOCUMENTED/));
   addGate('SVG symbol audit      (<symbol> elements declared as DS ICON or PLUGIN-SPECIFIC)', parseGeneric(r15, /DOCUMENTED|UNDOCUMENTED/));
+  addGate('State selector coverage  (propertyMap selectors present in CSS)', parseGeneric(r16, /COVERED|MISSING/));
+  addGate('State var placement  (state-suffix vars only in matching state selectors)', parseGeneric(r17, /CORRECT|MISMATCH/));
 
   // ── Final report ──────────────────────────────────────────────────────────────
   console.log('\n' + C.bold('─'.repeat(WIDTH)));

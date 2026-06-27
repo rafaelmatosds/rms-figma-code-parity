@@ -1,7 +1,7 @@
 # /rms-figma-code-parity — Figma DS ↔ Code Parity
 
 **What it does:** Audits whether the CSS codebase faithfully implements the DS Figma file.
-Checks token values, alias chains, structure, bound tokens, unused vars, hardcoded values, build freshness, and more (14 gates). Outputs an HTML report with a gate summary banner and a per-dimension token table (Color / Sizing / Typography). Fix anything red before declaring parity.
+Checks token values, alias chains, structure, bound tokens, unused vars, hardcoded values, build freshness, and more (17 gates). Outputs an HTML report with a gate summary banner and a per-dimension token table (Color / Sizing / Typography). Fix anything red before declaring parity.
 
 > **Sister skill:** `/rms-figma-sync` checks whether a *consumer Figma file* is in sync with the DS. Use that for design handoff validation; use this one for code implementation validation.
 
@@ -71,6 +71,7 @@ Once `ds-config.json` exists, extract:
 - `visualRefs` — directory for stored reference screenshots (default: `.parity-refs`)
 - `visualRefScale` *(optional)* — PNG export scale for Gate [9] screenshots (default: `2`). Set to `3` for higher-fidelity references. Changing this value invalidates all stored refs — accept the new `.new.png` files with `mv *.new.png *.png` after the first run at the new scale.
 - `knownUnimplementedComponents` — array of component names (matching keys in `structure-contract.mjs`) to exclude from Gate [3] and Gate [4] checks. Use this only as a temporary hold for DS components not yet built in code. Remove a component from this list as soon as its CSS and propertyMap are implemented. An empty array is the target state.
+- `knownStateExemptions` *(optional)* — array of `{ var, selector, _note }` objects exempting a specific `var`+`selector` pair from Gate [17]. Use when a state-suffix var is intentionally used outside its state selector — component mirrors (one component reusing another's token), semantic reuse (hover bg repurposed as neutral tint), or non-obvious class naming (`:checked` = selected for radio buttons). Always include a `_note` explaining the intent.
 - `webhook.port` / `webhook.secret` — webhook server config
 
 Use these throughout all Figma queries. Never hardcode collection or mode names.
@@ -569,13 +570,13 @@ Save the returned JSON as `bound-tokens.json` at project root and commit it. Run
 
 ---
 
-## Phase 2 — Step 2: Run all 15 audit gates
+## Phase 2 — Step 2: Run all 17 audit gates
 
 ```bash
 node scripts/audit.mjs
 ```
 
-All 15 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
+All 17 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 
 | Gate | Script | What it checks |
 |---|---|---|
@@ -594,6 +595,8 @@ All 15 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | [13] | `naming-check.mjs` | **CSS naming round-trip** — Do all CSS variable names trace back to a real Figma token? Catches variables someone invented that have no counterpart in the design system. |
 | [14] | `pseudo-element-check.mjs` | **Pseudo-element audit** — Are decorative `::before` / `::after` elements documented? Any visual element added via CSS pseudo-elements must be declared in the component's structure contract so it doesn't silently drift. |
 | [15] | `icon-check.mjs` | **SVG symbol audit** — Are all `<symbol>` elements in plugin HTML files declared in `ICON_SYMBOLS` in `structure-contract.mjs`? DS icons must record a Figma node ID; custom icons must be marked `PLUGIN-SPECIFIC`. Prevents hand-drawn paths from silently replacing DS-sourced SVGs. |
+| [16] | `state-binding-check.mjs` | **State selector coverage** — Does every Figma state variant have a CSS rule? Walks `CONTRACT.propertyMap` and verifies that each Figma state (hover, selected, disabled, current, show/hide…) has a matching CSS selector in the codebase. Catches missing hover/selected/disabled rules that Gate [3] doesn't see (which only checks State=Default). |
+| [17] | `component-selector-check.mjs` | **State var placement** — Are state-suffix vars used in the right selector? Verifies that CSS variables ending in `-hover`, `-selected`, `-disabled`, `-focus`, or `-checked` only appear inside selectors that have a matching state indicator. A hover var in a default-state selector means the wrong value applies to the wrong interaction state. State indicators are derived from both standard CSS patterns (`:hover`, `.selected`, `:disabled`…) and the custom classes documented in `CONTRACT.propertyMap`. Intentional exceptions (component mirrors, semantic reuse) go in `ds-config.json → knownStateExemptions`. |
 
 **Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 

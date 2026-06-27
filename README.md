@@ -2,7 +2,7 @@
 
 A Claude Code skill + automated scripts for continuous Figma DS ↔ CSS code parity auditing.
 
-Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase 1 refreshes the live Figma snapshot, Phase 2 runs 15 automated gates. You can never accidentally audit against a stale snapshot.
+Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase 1 refreshes the live Figma snapshot, Phase 2 runs 17 automated gates. You can never accidentally audit against a stale snapshot.
 
 > **Sister skill:** [rms-figma-sync](https://github.com/rafaelmatosds/rms-figma-sync) — checks whether a consumer Figma product file is in sync with the DS library. Use that for design handoff validation; use this one for code implementation validation.
 
@@ -13,9 +13,9 @@ Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase
 | Phase | What happens |
 |---|---|
 | **1 — Figma Refresh** | Queries live Figma (color, sizing, typography, component structure), diffs against stored snapshots, reports changes, writes updated snapshots, verifies resolvers pass |
-| **2 — Code Parity** | Runs all 15 automated gates, component deep-walk, HTML parity report |
+| **2 — Code Parity** | Runs all 17 automated gates, component deep-walk, HTML parity report |
 
-**15 automated gates:**
+**17 automated gates:**
 
 | Gate | Script | What it checks |
 |---|---|---|
@@ -34,6 +34,8 @@ Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase
 | [13] | `naming-check.mjs` | **Do all CSS variable names trace back to a real Figma token?** Makes sure nobody invented a CSS variable that has no counterpart in the design system. |
 | [14] | `pseudo-element-check.mjs` | **Are decorative `::before` / `::after` elements documented?** Any visual element added via CSS pseudo-elements must be declared in the component's structure contract so it doesn't silently drift from the design. |
 | [15] | `icon-check.mjs` | **Are all SVG symbols documented and correctly implemented?** Every `<symbol>` in plugin HTML files must be declared in `ICON_SYMBOLS` in `structure-contract.mjs` as either a DS icon (with Figma node ID) or a plugin-specific icon. Also verifies: rotation wrapper present when Figma applies one (`transform`), icon rendered at DS-specified pixel size (`size`), and fill-only icons carry `stroke="none"` to prevent broad CSS stroke rules from adding unintended visual weight (`strokeNone`). |
+| [16] | `state-binding-check.mjs` | **Does every Figma state variant have a CSS rule?** Walks `CONTRACT.propertyMap` and verifies that each Figma state (hover, selected, disabled, current, show/hide…) has a matching CSS selector in the codebase. Catches missing hover/selected/disabled rules that Gate [3] doesn't see (Gate [3] only checks State=Default structure). |
+| [17] | `component-selector-check.mjs` | **Are state-suffix vars used in the right selector?** CSS variables ending in `-hover`, `-selected`, `-disabled`, `-focus`, or `-checked` must only appear inside selectors that have a matching state indicator (`:hover`, `.selected`, etc.). State indicators are derived from both standard CSS pseudo-classes and the custom classes in `CONTRACT.propertyMap`. Intentional exceptions go in `ds-config.json → knownStateExemptions`. |
 
 **Everything is read-only.** No source file is ever modified automatically. The only exception is `node scripts/parity-check.mjs --fix`, which must be invoked explicitly and only rewrites sizing/typography literal values.
 
@@ -75,9 +77,9 @@ Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase
 
 ```
 ─── Parity Trend ───────────────────────────────────────────
-  ✅  2026-06-15  15/15 [███████████████]
-  ❌  2026-06-16  11/13 [█████████████░░]
-  ✅  2026-06-17  15/15 [███████████████]
+  ✅  2026-06-15  17/17 [█████████████████]
+  ❌  2026-06-16  11/13 [███████████████░░]
+  ✅  2026-06-17  17/17 [█████████████████]
 ────────────────────────────────────────────────────────────
 ```
 
