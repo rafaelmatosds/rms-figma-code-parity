@@ -2,7 +2,7 @@
 
 A Claude Code skill + automated scripts for continuous Figma DS ↔ CSS code parity auditing.
 
-Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase 1 refreshes the live Figma snapshot, Phase 2 runs 17 automated gates. You can never accidentally audit against a stale snapshot.
+Invoke `/rms-figma-code-parity` in any project to run a full parity check: Phase 1 refreshes the live Figma snapshot, Phase 2 runs 12 automated gates. You can never accidentally audit against a stale snapshot.
 
 > **Sister skill:** [rms-figma-sync](https://github.com/rafaelmatosds/rms-figma-sync) — checks whether a consumer Figma product file is in sync with the DS library. Use that for design handoff validation; use this one for code implementation validation.
 
@@ -42,29 +42,24 @@ Open Claude Code inside the project and run:
 | Phase | What happens |
 |---|---|
 | **1 — Figma Refresh** | Queries live Figma (color, sizing, typography, component structure), diffs against stored snapshots, reports changes, writes updated snapshots, verifies resolvers pass |
-| **2 — Code Parity** | Runs all 17 automated gates, component deep-walk, HTML parity report |
+| **2 — Code Parity** | Runs all 12 automated gates, component deep-walk, HTML parity report |
 
-**17 automated gates:**
+**12 automated gates:**
 
 | Gate | Script | What it checks |
 |---|---|---|
-| [1]  | inline | **Is the data fresh?** Confirms the Figma snapshot was pulled today — so you're never auditing against yesterday's design. |
-| [2]  | `parity-check.mjs` | **Do the colors, sizes, and fonts match Figma?** Compares every design token value (light mode, dark mode, all modes) against what's in the code. Flags mismatches, missing variables, and wrong alias chains. |
-| [3]  | `structure-check.mjs` | **Does the component look the way Figma says it should?** Checks that each component's height, spacing, font, and radius are all wired to the right design tokens — not hardcoded, not missing. |
-| [4]  | `bound-check.mjs` | **Is anything in the design that isn't in the code?** Walks every Figma frame and finds tokens that are actively used in the design but have no matching CSS variable in the codebase. |
-| [5]  | inline | **Unused CSS vars** — Are there CSS variables nobody's using? Finds variables that are declared but never actually applied anywhere — dead weight that should be cleaned up. |
-| [6]  | inline | **Hardcoded values** — Are there raw values that should be tokens? Catches any hardcoded color, size, spacing, or radius written directly into a CSS rule instead of using a design token variable. |
-| [7]  | inline | **Build freshness** — Is the built output up to date? Makes sure the compiled files aren't older than the source — catches cases where you edited the source but forgot to rebuild. |
-| [8]  | `subcomponent-isolation-check.mjs` | **Is a parent component accidentally overriding a child component's styles?** When one DS component lives inside another, their styles must not bleed into each other. |
-| [9]  | `visual-regression-check.mjs` | **Does it still look the same?** Takes a screenshot of the live Figma frame and compares it against the last accepted reference image. Flags any visual drift. Skips if no Figma token is configured. |
-| [10] | `state-check.mjs` | **Are all component states covered?** Makes sure every interactive state defined in Figma (hover, pressed, disabled, selected…) has a corresponding token in the code. |
-| [11] | `exemption-check.mjs` | **Are the documented exceptions still valid?** Any tokens manually marked as "skip this" are cross-checked against the current snapshot — if the token no longer exists or has changed, the exemption is flagged as stale. |
-| [12] | `mode-completeness-check.mjs` | **Do all modes actually adapt?** Verifies that every token that's supposed to change between modes actually does — nothing accidentally stuck at the same value across modes that are meant to differ. |
-| [13] | `naming-check.mjs` | **Do all CSS variable names trace back to a real Figma token?** Makes sure nobody invented a CSS variable that has no counterpart in the design system. |
-| [14] | `pseudo-element-check.mjs` | **Are decorative `::before` / `::after` elements documented?** Any visual element added via CSS pseudo-elements must be declared in the component's structure contract so it doesn't silently drift from the design. |
-| [15] | `icon-check.mjs` | **Are all SVG symbols documented and correctly implemented?** Every `<symbol>` in plugin HTML files must be declared in `ICON_SYMBOLS` in `structure-contract.mjs` as either a DS icon (with Figma node ID) or a plugin-specific icon. Also verifies: rotation wrapper present when Figma applies one (`transform`), icon rendered at DS-specified pixel size (`size`), and fill-only icons carry `stroke="none"` to prevent broad CSS stroke rules from adding unintended visual weight (`strokeNone`). |
-| [16] | `state-binding-check.mjs` | **Does every Figma state variant have a CSS rule?** Walks `CONTRACT.propertyMap` and verifies that each Figma state (hover, selected, disabled, current, show/hide…) has a matching CSS selector in the codebase. Catches missing hover/selected/disabled rules that Gate [3] doesn't see (Gate [3] only checks State=Default structure). |
-| [17] | `component-selector-check.mjs` | **Are state-suffix vars used in the right selector?** CSS variables ending in `-hover`, `-selected`, `-disabled`, `-focus`, or `-checked` must only appear inside selectors that have a matching state indicator (`:hover`, `.selected`, etc.). State indicators are derived from both standard CSS pseudo-classes and the custom classes in `CONTRACT.propertyMap`. Intentional exceptions go in `ds-config.json → knownStateExemptions`. |
+| [1]  | inline | **Freshness** — Snapshot files pulled today and compiled plugin outputs not older than their sources. Combines snapshot-staleness and build-staleness into one signal. |
+| [2]  | `parity-check.mjs` | **Token parity** — Every design token value (color, size, typography, all modes) matches Figma. Flags value mismatches, missing variables, and wrong alias chains. |
+| [3]  | `structure-check.mjs` | **Structure** — Each component's height, spacing, font, and radius are wired to the right design tokens — not hardcoded, not missing. |
+| [4]  | `bound-check.mjs` | **Bound-token coverage** — Every token actively used in the Figma frames has a matching CSS variable in the codebase. |
+| [5]  | inline | **CSS hygiene** — No declared-but-orphaned CSS variables (unused weight) and no raw literal values in CSS rules (hardcoded hex, px, etc.). |
+| [6]  | `subcomponent-isolation-check.mjs` | **Sub-component isolation** — Parent component styles don't bleed into nested DS sub-components. |
+| [7]  | `visual-regression-check.mjs` | **Visual regression** — Live Figma frame screenshot matches the stored reference. Flags any visual drift. Skips if no Figma token is configured. |
+| [8]  | `state-check.mjs` `state-binding-check.mjs` `component-selector-check.mjs` | **State coverage** — Three checks in one: all Figma component states have tokens (`state-check`), every `CONTRACT.propertyMap` state selector exists in CSS (`state-binding-check`), and state-suffix vars only appear inside matching state selectors (`component-selector-check`). |
+| [9]  | `exemption-check.mjs` | **Exemption validity** — Tokens marked as "skip this" are cross-checked against the snapshot. Stale exemptions are flagged. |
+| [10] | `mode-completeness-check.mjs` | **Mode completeness** — Every token that varies between modes actually adapts — nothing frozen at the same value across modes that are supposed to differ. |
+| [11] | `naming-check.mjs` | **CSS naming round-trip** — Every CSS variable name traces back to a real Figma token. Catches invented variables with no DS counterpart. |
+| [12] | `pseudo-element-check.mjs` `icon-check.mjs` | **Contract coverage** — `::before`/`::after` elements and SVG `<symbol>` elements must be declared in the structure contract. DS icons must record a Figma node ID; custom icons must be marked `PLUGIN-SPECIFIC`. |
 
 **Everything is read-only.** No source file is ever modified automatically. The only exception is `node scripts/parity-check.mjs --fix`, which must be invoked explicitly and only rewrites sizing/typography literal values.
 
@@ -106,9 +101,9 @@ Open Claude Code inside the project and run:
 
 ```
 ─── Parity Trend ───────────────────────────────────────────
-  ✅  2026-06-15  17/17 [█████████████████]
-  ❌  2026-06-16  11/13 [███████████████░░]
-  ✅  2026-06-17  17/17 [█████████████████]
+  ✅  2026-06-15  12/12 [████████████]
+  ❌  2026-06-16  11/13 [███████████░]
+  ✅  2026-06-17  12/12 [████████████]
 ────────────────────────────────────────────────────────────
 ```
 

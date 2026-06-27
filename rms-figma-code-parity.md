@@ -570,33 +570,28 @@ Save the returned JSON as `bound-tokens.json` at project root and commit it. Run
 
 ---
 
-## Phase 2 — Step 2: Run all 17 audit gates
+## Phase 2 — Step 2: Run all 12 audit gates
 
 ```bash
 node scripts/audit.mjs
 ```
 
-All 17 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
+All 12 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 
 | Gate | Script | What it checks |
 |---|---|---|
-| [1]  | inline | **Snapshot freshness** — Is the data fresh? Always ✅ after Phase 1 runs. |
-| [2]  | `parity-check.mjs` | **Token value parity** — Do the colors, sizes, and fonts match Figma? Every token across every mode. NEW SKIP = token in Figma but no CSS var yet — treat as ❌. `⏳ PENDING FIGMA SYNC` when code matches the upstream DS source but the primary snapshot has a newer value (not a code bug — snapshot needs updating). |
-| [3]  | `structure-check.mjs` | **Structural parity** — Does the component look the way Figma says it should? Height, spacing, font, and radius must all point to the right design tokens — no hardcodes, no gaps. Also enforces `childFramePadding` HTML structure: for every entry in the structure contract's `childFramePadding[]`, grep every file in `paths.pluginCSS` for the component class and verify that any button/element containing visible text has the required child element (e.g. `<span>`) so the CSS padding rule can apply. A button with bare text instead of a wrapped child is flagged as ❌ structural mismatch — fix by wrapping the text in the required element, then rebuild and re-audit. |
-| [4]  | `bound-check.mjs` | **Bound-token coverage** — Is anything in the design that isn't in the code? Walks the Figma frames and finds tokens actively used in the design that have no CSS variable yet. |
-| [5]  | inline | **Unused CSS vars** — Are there CSS variables nobody's using? Declared-but-orphaned variables that can be safely deleted. Scans the whole repo (`.vue`, `.jsx`, `.tsx`, `.html`, `.css`, `.scss`, `.js`, `.ts`). |
-| [6]  | inline | **Hardcoded values** — Are there raw values that should be tokens? Every CSS rule is scanned — colors, padding, margin, width, height, border-radius, gap, font-size, line-height, and more. Any literal value written directly into a rule instead of `var(--)` is flagged. Intentional layout math (`100%`, `50%`) goes in `ds-config.json → knownHardcodedExceptions`. |
-| [7]  | inline | **Build freshness** — Is the built output up to date? Catches cases where you edited the source but forgot to rebuild. Skips if no build plugins are configured. |
-| [8]  | `subcomponent-isolation-check.mjs` | **Sub-component isolation** — Is a parent component accidentally overriding a child's styles? When one DS component lives inside another, their styles must not bleed into each other. |
-| [9]  | `visual-regression-check.mjs` | **Visual regression** — Does it still look the same? Compares a live screenshot of the Figma frame against the last accepted reference. Flags any visual drift. Skips if `FIGMA_TOKEN` isn't set or no frames are configured. |
-| [10] | `state-check.mjs` | **State completeness** — Are all component states covered? Every interactive state in Figma (hover, pressed, disabled, selected…) must have a token in the code. Skips if no state data is available. |
-| [11] | `exemption-check.mjs` | **Exemption validity** — Are the documented exceptions still valid? Tokens marked as "skip this" are cross-checked against the snapshot. If a token no longer exists or has changed, the exemption is flagged as stale. |
-| [12] | `mode-completeness-check.mjs` | **Mode completeness** — Do all modes actually adapt? Verifies that every token meant to vary between modes actually does — light vs dark, compact vs comfortable spacing, any breakpoint or density mode your DS defines. Nothing should be frozen at the same value across modes that are supposed to differ. |
-| [13] | `naming-check.mjs` | **CSS naming round-trip** — Do all CSS variable names trace back to a real Figma token? Catches variables someone invented that have no counterpart in the design system. |
-| [14] | `pseudo-element-check.mjs` | **Pseudo-element audit** — Are decorative `::before` / `::after` elements documented? Any visual element added via CSS pseudo-elements must be declared in the component's structure contract so it doesn't silently drift. |
-| [15] | `icon-check.mjs` | **SVG symbol audit** — Are all `<symbol>` elements in plugin HTML files declared in `ICON_SYMBOLS` in `structure-contract.mjs`? DS icons must record a Figma node ID; custom icons must be marked `PLUGIN-SPECIFIC`. Prevents hand-drawn paths from silently replacing DS-sourced SVGs. |
-| [16] | `state-binding-check.mjs` | **State selector coverage** — Does every Figma state variant have a CSS rule? Walks `CONTRACT.propertyMap` and verifies that each Figma state (hover, selected, disabled, current, show/hide…) has a matching CSS selector in the codebase. Catches missing hover/selected/disabled rules that Gate [3] doesn't see (which only checks State=Default). |
-| [17] | `component-selector-check.mjs` | **State var placement** — Are state-suffix vars used in the right selector? Verifies that CSS variables ending in `-hover`, `-selected`, `-disabled`, `-focus`, or `-checked` only appear inside selectors that have a matching state indicator. A hover var in a default-state selector means the wrong value applies to the wrong interaction state. State indicators are derived from both standard CSS patterns (`:hover`, `.selected`, `:disabled`…) and the custom classes documented in `CONTRACT.propertyMap`. Intentional exceptions (component mirrors, semantic reuse) go in `ds-config.json → knownStateExemptions`. |
+| [1]  | inline | **Freshness** — Snapshot files pulled today and compiled outputs not older than source. Always ✅ after Phase 1 runs. |
+| [2]  | `parity-check.mjs` | **Token value parity** — Every token across every mode matches Figma. NEW SKIP = token in Figma but no CSS var yet — treat as ❌. `⏳ PENDING FIGMA SYNC` when code matches the upstream DS source but the primary snapshot has a newer value (not a code bug). |
+| [3]  | `structure-check.mjs` | **Structural parity** — Height, spacing, font, and radius all point to the right design tokens — no hardcodes, no gaps. Also enforces `childFramePadding` HTML structure: text-bearing buttons must wrap text in the required child element (e.g. `<span>`) so CSS padding applies. |
+| [4]  | `bound-check.mjs` | **Bound-token coverage** — Every token actively used in the Figma frames has a CSS variable. |
+| [5]  | inline | **CSS hygiene** — No declared-but-orphaned CSS vars (unused weight) and no raw literal values in CSS rules (hardcoded hex, px, etc.). Intentional exceptions in `ds-config.json → knownHardcodedExceptions`. |
+| [6]  | `subcomponent-isolation-check.mjs` | **Sub-component isolation** — Parent component styles don't bleed into nested DS sub-components. |
+| [7]  | `visual-regression-check.mjs` | **Visual regression** — Live Figma frame screenshot matches the stored reference. Skips if `FIGMA_TOKEN` isn't set or no frames are configured. |
+| [8]  | `state-check.mjs` `state-binding-check.mjs` `component-selector-check.mjs` | **State coverage** — Three checks in one: (a) all Figma component states have tokens in code (`state-check`); (b) every `CONTRACT.propertyMap` state selector exists in CSS (`state-binding-check`); (c) state-suffix vars (`-hover`, `-selected`, `-disabled`, `-focus`, `-checked`) only appear inside selectors with a matching state indicator — derived from standard CSS patterns and `CONTRACT.propertyMap` (`component-selector-check`). Intentional exceptions go in `ds-config.json → knownStateExemptions`. |
+| [9]  | `exemption-check.mjs` | **Exemption validity** — Tokens marked as "skip this" are cross-checked against the snapshot. Stale exemptions (token renamed or removed) are flagged. |
+| [10] | `mode-completeness-check.mjs` | **Mode completeness** — Every token meant to vary between modes actually does — light vs dark, compact vs comfortable, any DS mode. Nothing frozen at the same value where modes should differ. |
+| [11] | `naming-check.mjs` | **CSS naming round-trip** — Every CSS variable name traces back to a real Figma token. Catches invented variables with no DS counterpart. |
+| [12] | `pseudo-element-check.mjs` `icon-check.mjs` | **Contract coverage** — `::before`/`::after` elements must be declared in the structure contract. SVG `<symbol>` elements must be in `ICON_SYMBOLS`: DS icons with Figma node ID, plugin icons marked `PLUGIN-SPECIFIC`. Also verifies rotation wrapper (`transform`), render size (`size`), and fill-only stroke guard (`strokeNone`). |
 
 **Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 

@@ -11,26 +11,21 @@
 // Subsequent runs: config exists, audit starts immediately.
 //
 // Gates:
-//   [1]  Snapshot freshness     — warns if snapshots are stale (> 24 h)
-//   [2]  Parity check           — token values: color + sizing + typography
-//   [3]  Structure check        — heights + CSS base-rule var bindings
-//   [4]  Bound-token coverage   — every bound Figma token has a CSS var
-//   [5]  Unused var check       — no declared-but-orphaned CSS vars
-//   [6]  Hardcoded value scan   — no raw hex / px in CSS rules
-//   [7]  Build freshness        — source files not newer than built output
-//   [8]  Sub-component isolation — no broad element selector overrides sub-component styles
-//   [9]  Visual regression      — Figma frame screenshots match stored references
-//                                (requires FIGMA_TOKEN env var; skipped if not set)
-//   [10] State completeness     — all COMPONENT_SET state tokens covered (skips if no data)
-//   [11] Exemption validity     — EXPLICIT/SKIP_TOKENS/COVERED entries not stale in snapshot
-//   [12] Mode completeness      — all mode-variant tokens adapt across every configured mode
-//   [13] CSS naming round-trip  — every theme.css var traces back to a Figma token
-//   [14] Pseudo-element audit   — every ::before/::after with content declared in contract
-//   [15] SVG symbol audit       — every <symbol> in HTML files declared in contract (DS icon or PLUGIN-SPECIFIC)
-//   [16] State selector coverage — every CONTRACT.propertyMap selector has a CSS rule
-//   [17] State var placement    — state-suffix vars (-hover/-selected/-disabled/-focus/-checked) only in state selectors
+//   [1]  Freshness             — snapshot files updated today; compiled outputs match source
+//   [2]  Parity check          — token values: color + sizing + typography
+//   [3]  Structure check       — heights + CSS base-rule var bindings
+//   [4]  Bound-token coverage  — every bound Figma token has a CSS var
+//   [5]  CSS hygiene           — no orphaned CSS vars; no raw literals in rules
+//   [6]  Sub-component isolation — no broad element selector overrides sub-component styles
+//   [7]  Visual regression     — Figma frame screenshots match stored references
+//   [8]  State coverage        — state completeness + selector binding + var placement
+//   [9]  Exemption validity    — EXPLICIT/SKIP_TOKENS/COVERED entries not stale in snapshot
+//   [10] Mode completeness     — all mode-variant tokens adapt across every configured mode
+//   [11] CSS naming round-trip — every theme.css var traces back to a Figma token
+//   [12] Contract coverage     — ::before/::after + <symbol> elements declared in contract
 //
-// Performance: gates 2–4, 8–17 (subprocess-based) run in parallel via Promise.all.
+// Performance: gates 2–4, 6–12 (subprocess-based) run in parallel via Promise.all.
+//              Gates 1 and 5 are computed inline (file stats + CSS scan).
 
 import readline                                                  from 'readline';
 import { spawn, spawnSync }                                      from 'child_process';
@@ -729,7 +724,14 @@ async function bootstrapConfig() {
     return { pass, lines: [...summary, ...fixLines] };
   }
 
-  // Generic parser for gates [10-13]: pass/fail from exit code, summary from keyword lines
+  function combineGates(...results) {
+    return {
+      pass: results.every(r => r.pass),
+      lines: results.flatMap(r => r.lines),
+    };
+  }
+
+  // Generic parser for subprocess gates: pass/fail from exit code, summary from keyword lines
   function parseGeneric(r, summaryRe) {
     if (r.status === null) return { pass: true, lines: ['⏭ script not found — skipped'] };
     const out  = r.stdout + r.stderr;
@@ -914,11 +916,14 @@ async function bootstrapConfig() {
     gates.push({ label, ...result });
   }
 
-  // Gate 1 — sync (file stat only)
-  addGate('Snapshot freshness', computeGate1());
+  // Inline gates — compute upfront so they can be combined
+  const _g1 = computeGate1();
+  const _g5 = computeGate5();
+  const _g6 = computeGate6();
+  const _g7 = computeGate7();
 
-  // Gates 2–4, 8–17 — all subprocess-based; launch concurrently
-  const [r2, r3, r4, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17] = await Promise.all([
+  // Subprocess gates — all launch concurrently
+  const [rParity, rStructure, rBound, rIsolation, rVisual, rState, rExemption, rMode, rNaming, rPseudo, rIcon, rStateBinding, rStateVar] = await Promise.all([
     runScriptAsync('parity-check.mjs', ['--json']),
     runScriptAsync('structure-check.mjs'),
     runScriptAsync('bound-check.mjs'),
@@ -934,22 +939,30 @@ async function bootstrapConfig() {
     runScriptAsync('component-selector-check.mjs'),
   ]);
 
-  addGate('Token parity  (color · sizing · typography)',               parseGate2(r2));
-  addGate('Structure     (snapshot · CSS height · base-rule vars)',    parseGate3(r3));
-  addGate('Bound-token coverage  (DS frames → CSS vars)',              parseGate4(r4));
-  addGate('Unused CSS vars',                                           computeGate5());
-  addGate('Hardcoded values  (no raw literals in rules — use var())', computeGate6());
-  addGate('Build freshness  (source ≤ built output)',                  computeGate7());
-  addGate('Sub-component isolation  (no parent rule overrides sub-component styles)', parseGate8(r8));
-  addGate('Visual regression  (frames match stored references)',       parseGate9(r9));
-  addGate('State completeness  (all COMPONENT_SET states covered)',    parseGeneric(r10, /COVERED|UNCOVERED/));
-  addGate('Exemption validity  (EXPLICIT · SKIP_TOKENS · COVERED not stale)', parseGeneric(r11, /VALID|STALE|BROKEN/));
-  addGate('Mode completeness  (all mode-variant tokens adapt across every configured mode)', parseGeneric(r12, /ADAPTS|STATIC|SKIPPED/));
-  addGate('CSS naming round-trip  (every var traceable to a Figma token)', parseGeneric(r13, /TRACEABLE|UNINVENTED/));
-  addGate('Pseudo-element audit  (::before/::after content declared in contract)', parseGeneric(r14, /DOCUMENTED|UNDOCUMENTED/));
-  addGate('SVG symbol audit      (<symbol> elements declared as DS ICON or PLUGIN-SPECIFIC)', parseGeneric(r15, /DOCUMENTED|UNDOCUMENTED/));
-  addGate('State selector coverage  (propertyMap selectors present in CSS)', parseGeneric(r16, /COVERED|MISSING/));
-  addGate('State var placement  (state-suffix vars only in matching state selectors)', parseGeneric(r17, /CORRECT|MISMATCH/));
+  addGate('Freshness  (snapshots · build output)',
+    combineGates(_g1, _g7));
+  addGate('Token parity  (color · sizing · typography)',
+    parseGate2(rParity));
+  addGate('Structure  (snapshot · CSS height · base-rule vars)',
+    parseGate3(rStructure));
+  addGate('Bound-token coverage  (DS frames → CSS vars)',
+    parseGate4(rBound));
+  addGate('CSS hygiene  (unused vars · hardcoded values)',
+    combineGates(_g5, _g6));
+  addGate('Sub-component isolation  (no parent rule overrides sub-component styles)',
+    parseGate8(rIsolation));
+  addGate('Visual regression  (frames match stored references)',
+    parseGate9(rVisual));
+  addGate('State coverage  (completeness · selector binding · var placement)',
+    combineGates(parseGeneric(rState, /COVERED|UNCOVERED/), parseGeneric(rStateBinding, /COVERED|MISSING/), parseGeneric(rStateVar, /CORRECT|MISMATCH/)));
+  addGate('Exemption validity  (EXPLICIT · SKIP_TOKENS · COVERED not stale)',
+    parseGeneric(rExemption, /VALID|STALE|BROKEN/));
+  addGate('Mode completeness  (all mode-variant tokens adapt across every configured mode)',
+    parseGeneric(rMode, /ADAPTS|STATIC|SKIPPED/));
+  addGate('CSS naming round-trip  (every var traceable to a Figma token)',
+    parseGeneric(rNaming, /TRACEABLE|UNINVENTED/));
+  addGate('Contract coverage  (pseudo-elements · SVG symbols)',
+    combineGates(parseGeneric(rPseudo, /DOCUMENTED|UNDOCUMENTED/), parseGeneric(rIcon, /DOCUMENTED|UNDOCUMENTED/)));
 
   // ── Final report ──────────────────────────────────────────────────────────────
   console.log('\n' + C.bold('─'.repeat(WIDTH)));

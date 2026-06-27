@@ -33,8 +33,8 @@ const gateLabels  = [...auditSrc.matchAll(/addGate\(\s*'([^']+)'/g)].map(m => m[
 // Extract script names from runScriptAsync('script.mjs') calls (in order)
 const scriptNames = [...auditSrc.matchAll(/runScriptAsync\(\s*'([^']+)'/g)].map(m => m[1].trim());
 
-// Gates [1],[5],[6],[7] are computed inline, not via runScriptAsync
-const INLINE_INDICES = new Set([0, 4, 5, 6]);
+// Gates [1] and [5] are computed inline (combined from former inline gates 1+7 and 5+6)
+const INLINE_INDICES = new Set([0, 4]);
 const gates = gateLabels.map((label, i) => {
   if (INLINE_INDICES.has(i)) return { n: i + 1, label, script: 'inline' };
   const scriptIdx = [...Array(i).keys()].filter(j => !INLINE_INDICES.has(j)).length;
