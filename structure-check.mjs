@@ -32,7 +32,7 @@ const PLUGIN_CSS    = cfg.paths?.pluginCSS          ?? [];
 // ── Load structure-contract.mjs ───────────────────────────────────────────────
 let CONTRACT = {}, CSS_HEIGHT_RULES = {}, CSS_BASE_RULE_VARS = [], STATE_SELECTORS = [];
 let FIGMA_LAYOUT_TO_CSS = {}, FONT_SCALE_TO_CSS = {}, COMPONENT_CSS_SELECTORS = {};
-let CSS_PROPERTY_ASSERTIONS = [], SURFACE_CONTAINERS = [];
+let CSS_PROPERTY_ASSERTIONS = [], SURFACE_CONTAINERS = [], BUTTON_CLASS_RULES = [];
 try {
   const m = await import(join(ROOT, 'structure-contract.mjs'));
   if (m.CONTRACT)                  CONTRACT                  = m.CONTRACT;
@@ -44,6 +44,7 @@ try {
   if (m.COMPONENT_CSS_SELECTORS)   COMPONENT_CSS_SELECTORS   = m.COMPONENT_CSS_SELECTORS;
   if (m.CSS_PROPERTY_ASSERTIONS)   CSS_PROPERTY_ASSERTIONS   = m.CSS_PROPERTY_ASSERTIONS;
   if (m.SURFACE_CONTAINERS)        SURFACE_CONTAINERS        = m.SURFACE_CONTAINERS;
+  if (m.BUTTON_CLASS_RULES)        BUTTON_CLASS_RULES        = m.BUTTON_CLASS_RULES;
 } catch { /* optional — runs with empty contract */ }
 
 // ── Load snapshot ─────────────────────────────────────────────────────────────
@@ -973,11 +974,64 @@ if (CANN_UNDOC.length > 0) {
   console.log('   Consider adding a Figma annotation to document why this behavior exists.');
 }
 
+// ── Gate [3i]: button HTML class rules ───────────────────────────────────────
+// Scans plugin HTML source files for <button> elements whose class attribute
+// violates a rule defined in BUTTON_CLASS_RULES.
+//
+// Export BUTTON_CLASS_RULES from structure-contract.mjs as an array of:
+//   { modifier, allowedBases }
+//   modifier     — class that triggers the check (e.g. 'buttonUnpair')
+//   allowedBases — at least one of these classes must also be on the button
+//
+// Catches wrong-base errors like buttonTertiary+buttonUnpair instead of
+// buttonQuaternary+buttonUnpair, independent of which project defines them.
+const BCLASS_FAIL = [], BCLASS_PASS = [];
+
+if (BUTTON_CLASS_RULES.length) {
+  const htmlFiles = [THEME_PATH, ...PLUGIN_CSS].filter(f => f.endsWith('.html') && existsSync(join(ROOT, f)));
+  // Match <button ...> tags — handles double and single-quoted class attributes
+  const btnRe = /<button\b[^>]*\bclass\s*=\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`)[^>]*>/g;
+  for (const file of htmlFiles) {
+    const src = readFileSync(join(ROOT, file), 'utf8');
+    let m;
+    while ((m = btnRe.exec(src)) !== null) {
+      const cls = (m[1] ?? m[2] ?? m[3]).trim();
+      const classes = cls.split(/\s+/);
+      for (const rule of BUTTON_CLASS_RULES) {
+        if (!classes.includes(rule.modifier)) continue;
+        const hasAllowed = rule.allowedBases.some(b => classes.includes(b));
+        if (hasAllowed) {
+          BCLASS_PASS.push(`${file}: .${rule.modifier} uses allowed base`);
+        } else {
+          const disallowed = classes.filter(c => c !== rule.modifier && !rule.allowedBases.includes(c) && /^button[A-Z]/.test(c));
+          BCLASS_FAIL.push(
+            `${file}: <button class="${cls}"> — .${rule.modifier} requires one of [${rule.allowedBases.join(', ')}]` +
+            (disallowed.length ? `; found [${disallowed.join(', ')}] instead` : '')
+          );
+        }
+      }
+    }
+  }
+}
+
+if (BUTTON_CLASS_RULES.length) {
+  const bTotal = BCLASS_PASS.length + BCLASS_FAIL.length;
+  console.log(`\n✅ PASS  ${BCLASS_PASS.length}/${bTotal} button class-base rules`);
+  console.log(`❌ FAIL  ${BCLASS_FAIL.length}`);
+  if (BCLASS_FAIL.length) {
+    console.log('\n─── Gate [3i] — button class-base violation ─────────────────────────');
+    for (const f of BCLASS_FAIL) console.log(`  ❌ ${f}`);
+    console.log('   Fix: replace the disallowed base class with one from allowedBases.');
+    console.log('   Contract: edit BUTTON_CLASS_RULES in structure-contract.mjs.');
+  }
+}
+
 const anyFail = FAIL.length > 0 || MISSING.length > 0 || UNCONTRACTED.length > 0 || CSS_FAIL.length > 0
              || VAR_FAIL.length > 0 || SELECTOR_FAIL.length > 0 || PROP_FAIL.length > 0
              || PHANTOM_FAIL.length > 0 || PILL_FAIL.length > 0
              || BSIDES_FAIL.length > 0 || ASSERT_FAIL.length > 0 || CHILD_FAIL.length > 0
-             || CPROP_FAIL.length > 0 || CANN_FAIL.length > 0 || SURF_FAIL.length > 0;
+             || CPROP_FAIL.length > 0 || CANN_FAIL.length > 0 || SURF_FAIL.length > 0
+             || BCLASS_FAIL.length > 0;
 
 if (!anyFail) { console.log('\nAll structural checks pass. ✓\n'); process.exit(0); }
 else { console.log(''); process.exit(1); }
