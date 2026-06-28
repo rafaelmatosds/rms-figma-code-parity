@@ -123,8 +123,11 @@ function extractPropVar(block, prop) {
   const re = new RegExp('(?<![a-zA-Z-])' + prop + '\\s*:\\s*(var\\(--[\\w-]+\\)|[^;\\n]+)');
   const m  = block?.match(re);
   if (!m) return null;
-  const vm = m[1].trim().match(/^var\((--[\w-]+)/);
-  return vm ? vm[1] : null;
+  const val = m[1].trim();
+  const vm = val.match(/^var\((--[\w-]+)/);       // direct var()
+  if (vm) return vm[1];
+  const embedded = val.match(/var\((--[\w-]+)/);  // var() inside color-mix() etc.
+  return embedded ? embedded[1] : null;
 }
 
 function selectorExists(css, selector) {

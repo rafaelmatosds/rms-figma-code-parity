@@ -777,7 +777,7 @@ async function bootstrapConfig() {
       return { pass: true, lines: [`⏭ ${msg.trim()}`] };
     }
     const pass     = r.status === 0;
-    const summary  = out.split('\n').filter(l => /✅|❌|📸/.test(l) && l.trim()).map(l => l.trim()).slice(0, 6);
+    const summary  = out.split('\n').filter(l => /✅|❌|📸|ℹ️/.test(l) && l.trim()).map(l => l.trim()).slice(0, 8);
     const fixLines = pass ? [] : out.split('\n')
       .filter(l => l.trim().startsWith('mv ') || l.includes('.new.png'))
       .map(l => '  ' + l.trim()).slice(0, 6);
@@ -1047,7 +1047,7 @@ async function bootstrapConfig() {
   addGate('Mode completeness  (all mode-variant tokens adapt across every configured mode)',
     parseGeneric(rMode, /ADAPTS|STATIC|SKIPPED/));
   addGate('CSS naming round-trip  (every var traceable to a Figma token)',
-    parseGeneric(rNaming, /TRACEABLE|UNINVENTED/));
+    parseGeneric(rNaming, /TRACEABLE|UNINVENTED|UNDOCUMENTED/));
   addGate('Contract coverage  (pseudo-elements · SVG symbols)',
     combineGates(parseGeneric(rPseudo, /DOCUMENTED|UNDOCUMENTED/), parseGeneric(rIcon, /DOCUMENTED|UNDOCUMENTED/)));
 

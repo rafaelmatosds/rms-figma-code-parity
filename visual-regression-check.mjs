@@ -140,5 +140,17 @@ if (!FAIL.length && !NEW_REF.length && PASS.length) {
   console.log('\nAll frames match their references. ✓\n');
 }
 
+// ── Plugin coverage advisory ───────────────────────────────────────────────────
+// Reports which plugin apps have no visual regression frame configured.
+// Add { "name": "...", "nodeId": "...", "plugin": "<plugin-name>" } to ds-config.json → frames.
+const PLUGINS_LIST = cfg.paths?.plugins ?? [];
+if (PLUGINS_LIST.length) {
+  const coveredPlugins = new Set(FRAMES.map(f => f.plugin).filter(Boolean));
+  const uncovered = PLUGINS_LIST.filter(p => !coveredPlugins.has(p));
+  if (uncovered.length) {
+    console.log(`\nℹ️  NO VISUAL REF — ${uncovered.join(', ')} — add Figma frame nodeId + "plugin" field to ds-config.json → frames`);
+  }
+}
+
 console.log('');
 process.exit(FAIL.length > 0 ? 1 : 0);

@@ -164,6 +164,29 @@ if (STALE_SYSTEM_VARS.length) {
   console.log('   Remove these entries from SYSTEM_VARS to keep the exemption list accurate.\n');
 }
 
+// ── CSS class selector → CONTRACT cross-reference ─────────────────────────────
+// Flags camelCase top-level CSS class selectors (e.g. .buttonPrimary, .sidePanel)
+// that have no CONTRACT entry and no knownPluginSelectors exemption.
+// INFO only — never causes exit(1). Helps catch undocumented plugin-specific components.
+const knownPluginSelectors = new Set(cfg.knownPluginSelectors ?? []);
+let CONTRACT_KEYS = new Set();
+try {
+  const contract = await import(join(ROOT, 'structure-contract.mjs'));
+  if (contract.CONTRACT) CONTRACT_KEYS = new Set(Object.keys(contract.CONTRACT));
+} catch { /* structure-contract.mjs is optional */ }
+
+if (CONTRACT_KEYS.size) {
+  const seen = new Set();
+  for (const m of rawCss.matchAll(/(?:^|[}\n])\s*\.([a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*)\s*[{,]/gm)) {
+    const cls = m[1];
+    if (!CONTRACT_KEYS.has(cls) && !knownPluginSelectors.has(cls)) seen.add(cls);
+  }
+  if (seen.size) {
+    const list = [...seen].map(c => `.${c}`).join(', ');
+    console.log(`\nℹ️  UNDOCUMENTED SELECTORS (${seen.size}) — ${list} — add to CONTRACT or ds-config.json → knownPluginSelectors`);
+  }
+}
+
 if (UNKNOWN.length || PLUGIN_OVERRIDE.length) {
   process.exit(1);
 } else {
