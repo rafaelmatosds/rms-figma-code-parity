@@ -106,6 +106,36 @@ export const ANIMATION_SKIP = new Set([
   // 'modal/enter/transitionTimingFunction',  // handled via JS Web Animations API
 ]);
 
+// ─── EFFECTS: hardcoded CSS effects that must be present per selector ─────────
+// Verifies backdrop-filter, box-shadow, filter, etc. that are not Figma token-driven.
+// Declare each effect that must exist in the final CSS so regressions are caught.
+// format: [{ selector: string, prop: string, expected: string }]
+export const EFFECTS = [
+  // { selector: '#modal-overlay', prop: 'backdrop-filter', expected: 'blur(4px)' },
+  // { selector: '.card', prop: 'box-shadow', expected: '0 2px 8px rgba(0,0,0,0.12)' },
+];
+
+// ─── FOCUS CONTRACT: expected focus treatment per interactive component ────────
+// Checked by Gate [2]. Declare how each interactive component handles keyboard focus.
+// type 'visible'  → :focus-visible selector rule must exist in CSS
+// type 'within'   → :focus-within selector rule must exist in CSS
+// type 'suppress' → outline: none must be declared in the selector's CSS block
+// format: [{ selector: string, type: 'visible' | 'within' | 'suppress' }]
+export const FOCUS_CONTRACT = [
+  // { selector: '.inputWrap', type: 'within' },   // focus activates on child input
+  // { selector: 'button',     type: 'suppress' },  // browser outline explicitly removed
+];
+
+// ─── SCOPE RULES: CSS vars that must only appear in specific property types ───
+// Prevents color tokens from being used as spacing values or vice versa.
+// format: [{ var: '--var-name', allowedProps: ['color', 'background-color', ...] }]
+// Each entry causes Gate [2] to fail if the var appears in any other CSS property.
+export const SCOPE_RULES = [
+  // { var: '--text',   allowedProps: ['color'] },
+  // { var: '--bg',     allowedProps: ['background', 'background-color'] },
+  // { var: '--border', allowedProps: ['border', 'border-color', 'border-bottom', 'border-top', 'border-left', 'border-right'] },
+];
+
 // ─── BOUND-TOKEN COVERAGE: Tokens not given a dedicated CSS var ───────────────
 // These are covered by semantic aliases, shared primitives, or are un-implementable.
 // Used by bound-check.mjs (Gate [4]).

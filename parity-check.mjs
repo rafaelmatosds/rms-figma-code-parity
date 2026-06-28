@@ -74,7 +74,8 @@ const ICON_TEXT_ALIAS = cfg.figma?.namingConvention?.iconTextAlias  ?? true;
 
 let EXPLICIT = {}, NULL_TOKENS = new Set(), SKIP_TOKENS = new Set(),
     KNOWN_NULL = new Set(), EXPLICIT_SIZING = {}, SIZING_SKIP = new Map(), TYPO = {},
-    BOOLEAN_SKIP = new Set(), ANIMATION_SKIP = new Set();
+    BOOLEAN_SKIP = new Set(), ANIMATION_SKIP = new Set(),
+    EFFECTS = [], SCOPE_RULES = [], FOCUS_CONTRACT = [];
 let NEUTRAL_VAR_RE = /^--neutral-(\d+)$/;
 // neutralMaps[i] = { key: '#hex' } for mode i — keys match NEUTRAL_VAR_RE capture group
 let neutralMaps = MODES.map(() => ({}));
@@ -91,6 +92,9 @@ try {
   if (map.NEUTRAL_VAR_RE)  NEUTRAL_VAR_RE  = map.NEUTRAL_VAR_RE;
   if (map.BOOLEAN_SKIP)    BOOLEAN_SKIP   = map.BOOLEAN_SKIP instanceof Set ? map.BOOLEAN_SKIP : new Set(map.BOOLEAN_SKIP);
   if (map.ANIMATION_SKIP)  ANIMATION_SKIP = map.ANIMATION_SKIP instanceof Set ? map.ANIMATION_SKIP : new Set(map.ANIMATION_SKIP);
+  if (map.EFFECTS)         EFFECTS        = Array.isArray(map.EFFECTS) ? map.EFFECTS : [];
+  if (map.SCOPE_RULES)     SCOPE_RULES    = Array.isArray(map.SCOPE_RULES) ? map.SCOPE_RULES : [];
+  if (map.FOCUS_CONTRACT)  FOCUS_CONTRACT = Array.isArray(map.FOCUS_CONTRACT) ? map.FOCUS_CONTRACT : [];
   // Multi-mode: NEUTRAL_MAPS overrides NEUTRAL_LIGHT / NEUTRAL_DARK
   if (map.NEUTRAL_MAPS) {
     if (Array.isArray(map.NEUTRAL_MAPS)) {
@@ -299,7 +303,7 @@ const snap = JSON.parse(readFileSync(join(ROOT, SNAPSHOT_PATH), 'utf8'));
 const sourceSnap = snap.source ?? null;
 
 // ── Accumulators ──────────────────────────────────────────────────────────────
-const FAIL = [], PASS = [], SKIP = [], NEW_SKIP = [], ALIAS_FAIL = [], PENDING_FIGMA_SYNC = [], BOOL_INFO = [], ANIM_INFO = [];
+const FAIL = [], PASS = [], SKIP = [], NEW_SKIP = [], ALIAS_FAIL = [], PENDING_FIGMA_SYNC = [], BOOL_INFO = [], ANIM_INFO = [], TYPO_INFO = [], EFFECTS_FAIL = [], SCOPE_FAIL = [], FOCUS_INFO = [];
 const autoFixes = []; // { cssVar, newVal, line } — applied when --fix
 
 // ── 1. COLOR ──────────────────────────────────────────────────────────────────
@@ -463,6 +467,16 @@ if (snap.typography && Object.keys(TYPO).length) {
 } else if (!Object.keys(TYPO).length) {
   SKIP.push({ dimension: 'typography', token: 'ALL', mode: '-', reason: 'TYPO map empty in parity-map.mjs — add your type scale vars' });
 }
+// Advisory: TYPO vars declared in :root but never used in any component-level CSS rule
+if (Object.keys(TYPO).length) {
+  const rulesOnlyCSS = rawCss.replace(/:root\s*\{[\s\S]*?\}/g, '');
+  for (const cssVar of Object.keys(TYPO)) {
+    const re = new RegExp(`var\\(${cssVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[,)]`);
+    if (!re.test(rulesOnlyCSS)) {
+      TYPO_INFO.push({ cssVar, note: 'declared in :root but not applied in any component rule' });
+    }
+  }
+}
 
 // ── 4. STRINGS ────────────────────────────────────────────────────────────────
 // STRING-typed Figma variables (font-family, font-weight, etc.) stored in snapshot.strings.
@@ -588,6 +602,57 @@ for (const [tokenName, expected] of Object.entries(animSnap)) {
   }
 }
 
+// ── EFFECTS: declared CSS effects must be present in the merged CSS ───────────
+// Verifies that hardcoded visual effects (backdrop-filter, box-shadow, filter) declared
+// in EFFECTS are present in the actual CSS. Not driven by Figma variables — these are
+// design-system-level effects documented manually in parity-map.mjs.
+for (const { selector, prop, expected } of EFFECTS) {
+  const sEsc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pEsc = prop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const eEsc = expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const blockRe = new RegExp(`${sEsc}[^{]*\\{[\\s\\S]*?${pEsc}\\s*:[^;]*${eEsc}`);
+  if (!blockRe.test(css)) {
+    EFFECTS_FAIL.push({ selector, prop, expected, issue: `${prop}: ${expected} not found in "${selector}" rule` });
+  }
+}
+
+// ── FOCUS CONTRACT: verify focus treatment per component selector ──────────────
+// FOCUS_CONTRACT in parity-map.mjs declares how each interactive component handles focus.
+// type 'visible'  → :focus-visible rule must exist for the selector
+// type 'within'   → :focus-within rule must exist
+// type 'suppress' → outline: none must be declared in the selector's rule block
+for (const { selector, type } of FOCUS_CONTRACT) {
+  const sEsc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let ok = false;
+  if (type === 'visible') {
+    ok = new RegExp(`${sEsc}[^{,]*:focus-visible`).test(css);
+    if (!ok) FOCUS_INFO.push({ selector, type, note: ':focus-visible rule not found — add focus-visible styling or change to "suppress"' });
+  } else if (type === 'within') {
+    ok = new RegExp(`${sEsc}[^{,]*:focus-within`).test(css);
+    if (!ok) FOCUS_INFO.push({ selector, type, note: ':focus-within rule not found' });
+  } else if (type === 'suppress') {
+    ok = new RegExp(`${sEsc}[^{]*\\{[\\s\\S]*?outline\\s*:\\s*none`).test(css);
+    if (!ok) FOCUS_INFO.push({ selector, type, note: 'outline: none not found in selector block — add it or document as "visible"' });
+  }
+}
+
+// ── SCOPE RULES: CSS vars must only appear in allowed CSS property types ───────
+// SCOPE_RULES in parity-map.mjs: [{ var: '--text', allowedProps: ['color'] }, ...]
+// Scans all non-:root CSS rules for scope violations (e.g. color var used as padding).
+if (SCOPE_RULES.length) {
+  const rulesCSS = css.replace(/:root\s*\{[\s\S]*?\}/g, '');
+  for (const { var: varName, allowedProps } of SCOPE_RULES) {
+    const varEsc = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ruleRe = new RegExp(`([\\w-]+)\\s*:[^;{]*var\\(${varEsc}[,)][^;{]*;`, 'g');
+    for (const m of rulesCSS.matchAll(ruleRe)) {
+      const usedProp = m[1].trim();
+      if (!allowedProps.includes(usedProp)) {
+        SCOPE_FAIL.push({ var: varName, usedProp, allowedProps, issue: `${varName} used in "${usedProp}:" — allowed only in [${allowedProps.join(', ')}]` });
+      }
+    }
+  }
+}
+
 // ── Auto-fix: apply sizing/typography fixes to theme.css ─────────────────────
 if (FIX_MODE && autoFixes.length > 0) {
   let lines = rawCss.split('\n');
@@ -622,6 +687,10 @@ console.log(`❌ FAIL  ${FAIL.length}`);
 if (snap.aliases) console.log(`🔗 ALIAS FAIL  ${ALIAS_FAIL.length}  (same hex, wrong primitive chain)`);
 if (sourceSnap)   console.log(`⏳ PENDING FIGMA SYNC  ${PENDING_FIGMA_SYNC.length}  (code matches DS source; consumer file has a pending library update)`);
 if (BOOL_INFO.length) console.log(`ℹ️  BOOLEAN TOKENS  ${BOOL_INFO.length}  (implement via display rules or class toggles — add to BOOLEAN_SKIP in parity-map.mjs to suppress)`);
+if (EFFECTS_FAIL.length) console.log(`❌ EFFECTS FAIL  ${EFFECTS_FAIL.length}  (declared CSS effects missing — update EFFECTS in parity-map.mjs)`);
+if (SCOPE_FAIL.length)   console.log(`❌ SCOPE FAIL  ${SCOPE_FAIL.length}  (token used in wrong CSS property type — fix or update SCOPE_RULES)`);
+if (TYPO_INFO.length)    console.log(`ℹ️  TYPO UNUSED  ${TYPO_INFO.length}  (typography vars not applied in component rules)`);
+if (FOCUS_INFO.length)   console.log(`ℹ️  FOCUS GAPS  ${FOCUS_INFO.length}  (update FOCUS_CONTRACT in parity-map.mjs)`);
 
 if (SKIP.length) {
   console.log('\n─── Skipped (expected — each has a documented reason) ─────────');
@@ -679,20 +748,41 @@ if (ANIM_INFO.length) {
     console.log(`  ℹ️  ${a.token}  →  ${a.cssVar}`);
   }
 }
+if (TYPO_INFO.length) {
+  console.log('\n─── ℹ️  Typography vars not applied in component rules ─────────');
+  console.log('   These vars are declared in :root with the right Figma value but never');
+  console.log('   referenced in any component-level CSS rule (font-size/weight/lh).');
+  for (const t of TYPO_INFO) console.log(`  ℹ️  ${t.cssVar}  —  ${t.note}`);
+}
+if (EFFECTS_FAIL.length) {
+  console.log('\n─── ❌ Missing declared CSS effects ────────────────────────────');
+  console.log('   These effects are declared in EFFECTS (parity-map.mjs) but not found in CSS.');
+  for (const e of EFFECTS_FAIL) console.log(`  ❌  ${e.selector}  —  ${e.issue}`);
+}
+if (FOCUS_INFO.length) {
+  console.log('\n─── ℹ️  Focus contract gaps ─────────────────────────────────────');
+  console.log('   Declare focus treatment in FOCUS_CONTRACT (parity-map.mjs).');
+  for (const f of FOCUS_INFO) console.log(`  ℹ️  ${f.selector} [${f.type}]  —  ${f.note}`);
+}
+if (SCOPE_FAIL.length) {
+  console.log('\n─── ❌ Token scope violations ───────────────────────────────────');
+  console.log('   CSS var used in a property type outside its declared SCOPE_RULES.');
+  for (const s of SCOPE_FAIL) console.log(`  ❌  ${s.issue}`);
+}
 
 if (JSON_MODE) {
   writeFileSync(join(ROOT, 'parity-check-result.json'), JSON.stringify({
-    pass: FAIL.length === 0 && NEW_SKIP.length === 0 && ALIAS_FAIL.length === 0,
+    pass: FAIL.length === 0 && NEW_SKIP.length === 0 && ALIAS_FAIL.length === 0 && EFFECTS_FAIL.length === 0 && SCOPE_FAIL.length === 0,
     fail: FAIL, aliasFail: ALIAS_FAIL, newSkip: NEW_SKIP, skip: SKIP,
     pendingFigmaSync: PENDING_FIGMA_SYNC,
-    boolInfo: BOOL_INFO,
-    animInfo: ANIM_INFO,
+    boolInfo: BOOL_INFO, animInfo: ANIM_INFO, typoInfo: TYPO_INFO,
+    effectsFail: EFFECTS_FAIL, focusInfo: FOCUS_INFO, scopeFail: SCOPE_FAIL,
     animationCount: Object.keys(animSnap).length,
     passList: PASS,
   }, null, 2));
 }
 
-if (FAIL.length === 0 && NEW_SKIP.length === 0 && ALIAS_FAIL.length === 0) {
+if (FAIL.length === 0 && NEW_SKIP.length === 0 && ALIAS_FAIL.length === 0 && EFFECTS_FAIL.length === 0 && SCOPE_FAIL.length === 0) {
   console.log('\nAll resolved CSS values match Figma snapshot. ✓\n');
   process.exit(0);
 } else { console.log(''); process.exit(1); }
