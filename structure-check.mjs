@@ -294,49 +294,62 @@ function extractPropVarWithFallback(block, prop) {
   return null;
 }
 
-// Build auto-derived assertions by cross-joining:
-//   stateBindings[componentName][variantName].bindings
-//   × CONTRACT[compName].propertyMap[propKey][stateValue] → CSS selector
-// Covers: root fills → background, root strokes → border-color, child TEXT fills → color.
+// Build auto-derived assertions using naming convention:
+//   Figma component set name → CSS base selector (convention: lowercase first letter)
+//   Figma variant props       → CSS modifier (standard state map: hover → :hover, etc.)
+//   cfg.componentSelectors    → project-specific overrides for non-convention selectors
+//
+// Only standard, universally-derivable state values are mapped. Unknown values (e.g.
+// "negative", "selected", "true") return null → that variant is skipped → no false positives.
+// Manual CSS_BASE_RULE_VARS entries handle non-standard states.
+
+const STANDARD_STATE_MODIFIER = {
+  'default':      '',
+  'hover':        ':hover',
+  'focus':        ':focus',
+  'active':       ':active',
+  'pressed':      ':active',
+  'focus-within': ':focus-within',
+  'false':        '', // "Disabled=False", "Selected=False" → base selector
+};
+
+function componentToBaseSelector(name) {
+  const overrides = cfg.componentSelectors ?? {};
+  if (overrides[name]) return overrides[name];
+  return '.' + name.charAt(0).toLowerCase() + name.slice(1);
+}
+
+function variantToModifier(props) {
+  const mods = [];
+  for (const [, val] of Object.entries(props)) {
+    if (!(val in STANDARD_STATE_MODIFIER)) return null; // unknown → skip variant
+    const m = STANDARD_STATE_MODIFIER[val];
+    if (m && !mods.includes(m)) mods.push(m);
+  }
+  return mods.join('');
+}
+
 const autoAssertions = [];
 if (Object.keys(stateBindings).length) {
-  for (const [compName, contract] of Object.entries(CONTRACT)) {
-    const figmaName = contract.figmaName ?? compName;
-    const setData   = stateBindings[figmaName] ?? stateBindings[compName];
-    if (!setData) continue;
-
-    for (const [propKey, propMap] of Object.entries(contract.propertyMap ?? {})) {
-      if (typeof propMap !== 'object' || propMap === null) continue;
-
-      for (const [stateValue, selector] of Object.entries(propMap)) {
-        if (typeof selector !== 'string') continue;
-        const propKeyLower    = propKey.toLowerCase();
-        const stateValueLower = stateValue.toLowerCase();
-
-        // Find Figma variant(s) where this property dimension has this value
-        const matched = Object.values(setData).filter(v => v.props[propKeyLower] === stateValueLower);
-        if (!matched.length) continue;
-
-        const { bindings } = matched[0]; // first match = most-default other dimensions
-        const emitted = new Set();       // one assertion per CSS prop per selector
-
-        for (const { token, bindingField, isText, depth } of bindings) {
-          if (depth === 1 && !isText) continue; // skip non-text children (icon SVGs etc.)
-          if (depth > 1) continue;              // skip deep nesting
-
-          let cssProp;
-          if      (bindingField === 'fills')   cssProp = isText ? 'color' : 'background';
-          else if (bindingField === 'strokes') cssProp = 'border-color';
-          else continue;
-
-          if (emitted.has(cssProp)) continue; // first binding per prop wins
-          emitted.add(cssProp);
-
-          const expectedVar = tokenToExpectedVar(token);
-          if (!expectedVar) continue;
-
-          autoAssertions.push({ key: `${compName}/${stateValue}/${cssProp}`, selector, prop: cssProp, expectedVar, _auto: true });
-        }
+  for (const [compSetName, variants] of Object.entries(stateBindings)) {
+    const baseSelector = componentToBaseSelector(compSetName);
+    for (const { props, bindings } of Object.values(variants)) {
+      const modifier = variantToModifier(props);
+      if (modifier === null) continue;
+      const selector = baseSelector + modifier;
+      const emitted  = new Set();
+      for (const { token, bindingField, isText, depth } of bindings) {
+        if (depth === 1 && !isText) continue; // skip non-text depth-1 children (icon SVGs)
+        if (depth > 1) continue;
+        let cssProp;
+        if      (bindingField === 'fills')   cssProp = isText ? 'color' : 'background';
+        else if (bindingField === 'strokes') cssProp = 'border-color';
+        else continue;
+        if (emitted.has(cssProp)) continue;
+        emitted.add(cssProp);
+        const expectedVar = tokenToExpectedVar(token);
+        if (!expectedVar) continue;
+        autoAssertions.push({ key: `auto:${compSetName}/${modifier || 'default'}/${cssProp}`, selector, prop: cssProp, expectedVar, _auto: true });
       }
     }
   }

@@ -751,7 +751,14 @@ This is a warning, not a failure — it does not block the audit. Its purpose: s
 ] } } }
 ```
 
-Gate [3c] cross-joins this with `CONTRACT.propertyMap` to auto-derive CSS var assertions for **every component, every state, every property** — without manual `CSS_BASE_RULE_VARS` entries. Coverage:
+Gate [3c] auto-derives CSS var assertions using **naming convention** — no `CONTRACT.propertyMap` dependency:
+
+- **Component name → CSS selector:** lowercase the first letter of the Figma component set name (e.g. `"ButtonSecondary"` → `.buttonSecondary`). Override per-component via `ds-config.json → componentSelectors` for non-convention selectors (e.g. `"Input": ".inputWrap"`, `"Tooltip": "#tt"`).
+- **Variant props → CSS modifier:** `state=hover` → `:hover`, `state=focus` → `:focus`, `state=active`/`pressed` → `:active`, `state=focus-within` → `:focus-within`, `state=default`/any `=false` → base selector. Unknown values (e.g. `"negative"`, `"selected"`, `"true"`) → variant skipped, no assertion generated.
+
+Only standard, universally-derivable states are mapped — no false positives for project-specific state semantics. Manual `CSS_BASE_RULE_VARS` entries handle non-standard states (badge severity levels, toast loading/success, etc.).
+
+Coverage:
 
 | Figma binding | Node type | Auto-derived CSS assertion |
 |---|---|---|
