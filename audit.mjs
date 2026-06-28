@@ -343,6 +343,78 @@ async function refreshBoundTokens(fileKey, frames, token, outPath) {
   }
 }
 
+// ── Collect structured state bindings: component → variant → { props, bindings } ─
+// Used by structure-check.mjs Gate [3c] to auto-derive CSS assertions without
+// manual CSS_BASE_RULE_VARS entries. Only fills + strokes at root and direct TEXT
+// children are collected — these map cleanly to background/border-color/color.
+function collectBindingsFromNode(node, idToName, result, maxDepth = 1, depth = 0) {
+  if (depth > maxDepth) return;
+  const isText = node.type === 'TEXT';
+  for (const [field, ref] of Object.entries(node.boundVariables ?? {})) {
+    if (field !== 'fills' && field !== 'strokes') continue;
+    const refs = Array.isArray(ref) ? ref : [ref];
+    for (const r of refs) {
+      const name = idToName[r?.id];
+      if (name) result.push({ token: name, bindingField: field, isText, depth });
+    }
+  }
+  for (const child of node.children ?? []) {
+    collectBindingsFromNode(child, idToName, result, maxDepth, depth + 1);
+  }
+}
+
+async function refreshStateBindings(fileKey, token, outPath) {
+  try {
+    const idToName = await buildVarIdMap(fileKey, token);
+    const csRes = await fetch(`https://api.figma.com/v1/files/${fileKey}/component_sets`, {
+      headers: { 'X-Figma-Token': token },
+    });
+    if (!csRes.ok) return false;
+    const { meta: csMeta } = await csRes.json();
+    const sets   = csMeta?.component_sets ?? {};
+    const setIds = Object.keys(sets);
+    if (!setIds.length) return false;
+
+    const result = {};
+    const BATCH  = 50;
+    for (let i = 0; i < setIds.length; i += BATCH) {
+      const batch = setIds.slice(i, i + BATCH);
+      const nRes  = await fetch(
+        `https://api.figma.com/v1/files/${fileKey}/nodes?ids=${batch.join(',')}`,
+        { headers: { 'X-Figma-Token': token } },
+      );
+      if (!nRes.ok) continue;
+      const { nodes } = await nRes.json();
+      for (const [setId, data] of Object.entries(nodes ?? {})) {
+        const setName = sets[setId]?.name ?? data?.document?.name ?? setId;
+        const setNode = data?.document;
+        if (!setNode) continue;
+        const variants = {};
+        for (const variant of setNode.children ?? []) {
+          if (variant.type !== 'COMPONENT') continue;
+          const props = {};
+          for (const part of (variant.name ?? '').split(',')) {
+            const eq = part.indexOf('=');
+            if (eq === -1) continue;
+            props[part.slice(0, eq).trim().toLowerCase()] = part.slice(eq + 1).trim().toLowerCase();
+          }
+          const bindings = [];
+          collectBindingsFromNode(variant, idToName, bindings, 1, 0);
+          if (bindings.length) variants[variant.name] = { props, bindings };
+        }
+        if (Object.keys(variants).length) result[setName] = variants;
+      }
+    }
+
+    writeFileSync(outPath, JSON.stringify(result, null, 2) + '\n');
+    console.log(C.dim(`  ✅ State bindings: ${Object.keys(result).length} component set(s) indexed`));
+    return true;
+  } catch (e) {
+    console.log(C.yellow(`  ⚠️  State bindings refresh failed: ${e.message}`));
+    return false;
+  }
+}
+
 async function refreshStateTokens(fileKey, token, outPath) {
   try {
     const idToName = await buildVarIdMap(fileKey, token);
@@ -561,7 +633,7 @@ async function bootstrapConfig() {
   // Only gitignore secrets and auto-generated transients.
   // ds-config.json, parity-map.mjs, structure-contract.mjs contain no secrets —
   // commit them so CI can run parity without interactive setup.
-  const toAdd     = ['.env', 'bound-tokens.json', 'component-state-tokens.json', 'parity-check-result.json']
+  const toAdd     = ['.env', 'bound-tokens.json', 'component-state-tokens.json', 'component-state-bindings.json', 'parity-check-result.json']
     .filter(e => !giContent.split('\n').some(l => l.trim() === e));
   if (toAdd.length) {
     const block = '\n# rms-parity: secrets + auto-generated transients — do not commit\n' + toAdd.join('\n') + '\n';
@@ -639,7 +711,7 @@ async function bootstrapConfig() {
   const SCAN_EXCLUDE_FILENAMES = new Set([
     'figma-vars.snapshot.json', 'figma-structure.snapshot.json',
     'figma-component-props.snapshot.json',
-    'bound-tokens.json', 'component-state-tokens.json', 'parity-history.json', 'master-token-table.md',
+    'bound-tokens.json', 'component-state-tokens.json', 'component-state-bindings.json', 'parity-history.json', 'master-token-table.md',
     ...(cfg.scanExcludeFilenames ?? []),
   ]);
 
@@ -991,6 +1063,7 @@ async function bootstrapConfig() {
     await refreshComponentProps(figmaFileKey, figmaToken, join(ROOT, SNAP_COMP_PROPS));
     await refreshBoundTokens(figmaFileKey, cfg.frames ?? [], figmaToken, join(ROOT, 'bound-tokens.json'));
     await refreshStateTokens(figmaFileKey, figmaToken, join(ROOT, 'component-state-tokens.json'));
+    await refreshStateBindings(figmaFileKey, figmaToken, join(ROOT, 'component-state-bindings.json'));
   }
 
   // ── Run gates ─────────────────────────────────────────────────────────────────

@@ -730,18 +730,83 @@ This is a warning, not a failure — it does not block the audit. Its purpose: s
 
 ---
 
-## Phase 2 — State walk (auto, enables Gate [10])
+## Phase 2 — State walk (auto, enables Gates [3c] + [10])
 
-**No manual step needed.** `audit.mjs` auto-generates `component-state-tokens.json` by:
+**No manual step needed.** `audit.mjs` auto-generates two files by walking every COMPONENT_SET:
 
-1. `GET /v1/files/{key}/component_sets` → all COMPONENT_SET node IDs
-2. Batch-fetch `/nodes?ids=...` for each set → walks all variant children, collecting every `boundVariables` reference
+### `component-state-tokens.json` — flat count map (Gate [10])
 
-This captures tokens used in every state (Hover, Disabled, Selected, etc.) — not just State=Default. Gate [10] (`state-check.mjs`) reads `component-state-tokens.json` and verifies all captured tokens are implemented in CSS.
+`{ "token/name": count }` — every token found in any variant state. Gate [10] (`state-check.mjs`) reads this and verifies all captured tokens have CSS vars.
 
-**If the auto-refresh fails** (no `FIGMA_TOKEN`): Gate [10] uses whatever `component-state-tokens.json` already exists. If missing, Gate [10] hard-fails (exit 2). Set `FIGMA_TOKEN` to enable.
+**If the auto-refresh fails** (no `FIGMA_TOKEN`): Gate [10] uses whatever exists. If missing, Gate [10] hard-fails (exit 2).
 
-> **Important:** `component-state-tokens.json` must be a plain `{ "token/name": count }` object — no metadata keys. `state-check.mjs` parses every key as a token name; any `_`-prefixed metadata key (`_updated`, `_note`) will appear as an uncovered token and fail Gate [10].
+> **Important:** must be a plain `{ "token/name": count }` object. Any `_`-prefixed key will be treated as an uncovered token and fail Gate [10].
+
+### `component-state-bindings.json` — structured binding map (Gate [3c] auto-derivation)
+
+```json
+{ "ButtonPrimary": { "State=Default": { "props": { "state": "default" }, "bindings": [
+  { "token": "buttonPrimary/background/color", "bindingField": "fills", "isText": false, "depth": 0 },
+  { "token": "buttonPrimary/text/color",       "bindingField": "fills", "isText": true,  "depth": 1 }
+] } } }
+```
+
+Gate [3c] cross-joins this with `CONTRACT.propertyMap` to auto-derive CSS var assertions for **every component, every state, every property** — without manual `CSS_BASE_RULE_VARS` entries. Coverage:
+
+| Figma binding | Node type | Auto-derived CSS assertion |
+|---|---|---|
+| `fills` | Root frame | `background: var(--token-var)` |
+| `strokes` | Root frame | `border-color: var(--token-var)` (with `border:` shorthand fallback) |
+| `fills` | Direct TEXT child | `color: var(--token-var)` |
+
+Manual `CSS_BASE_RULE_VARS` entries always override auto-derived for the same `selector+prop`. Use them for edge cases: shorthand combiners, deeply-nested selectors, or explicit exception overrides.
+
+**If the auto-refresh fails** (REST API 403 / no `FIGMA_TOKEN`): Gate [3c] falls back to manual `CSS_BASE_RULE_VARS` only. No gate noise — the count just shows `(N manual)` instead of `(N auto-derived · M manual)`.
+
+**Plugin API fallback** — when REST API is plan-limited, run this in Figma (via `use_figma` or Plugin console), save the output as `component-state-bindings.json` at project root (gitignored):
+
+```js
+const idToVar = {};
+const allVars = await figma.variables.getLocalVariablesAsync();
+for (const v of allVars) idToVar[v.id] = v;
+
+function getBindings(node, maxDepth = 1, depth = 0) {
+  if (depth > maxDepth) return [];
+  const isText = node.type === 'TEXT';
+  const result = [];
+  for (const field of ['fills', 'strokes']) {
+    const refs = Array.isArray(node.boundVariables?.[field])
+      ? node.boundVariables[field]
+      : node.boundVariables?.[field] ? [node.boundVariables[field]] : [];
+    for (const r of refs) {
+      const v = idToVar[r?.id];
+      if (v) result.push({ token: v.name, bindingField: field, isText, depth });
+    }
+  }
+  if ('children' in node) {
+    for (const child of node.children) result.push(...getBindings(child, maxDepth, depth + 1));
+  }
+  return result;
+}
+
+const result = {};
+const sets = figma.root.findAll(n => n.type === 'COMPONENT_SET');
+for (const set of sets) {
+  const variants = {};
+  for (const variant of set.children) {
+    if (variant.type !== 'COMPONENT') continue;
+    const props = {};
+    for (const part of (variant.name ?? '').split(',')) {
+      const eq = part.indexOf('=');
+      if (eq !== -1) props[part.slice(0, eq).trim().toLowerCase()] = part.slice(eq + 1).trim().toLowerCase();
+    }
+    const bindings = getBindings(variant, 1, 0);
+    if (bindings.length) variants[variant.name] = { props, bindings };
+  }
+  if (Object.keys(variants).length) result[set.name] = variants;
+}
+return JSON.stringify(result, null, 2);
+```
 
 ---
 
