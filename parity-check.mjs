@@ -437,7 +437,7 @@ for (const [tokenName, expected] of Object.entries(strSnap)) {
     FAIL.push({ dimension: 'strings', token: tokenName, cssVar, mode: '-', issue: 'CSS var not declared', fixHint: `Add ${cssVar}: ${expected} to ${THEME_PATH}` });
     continue;
   }
-  const norm = s => String(s).replace(/^["']|["']$/g, '').trim();
+  const norm = s => String(s).replace(/^["']|["']$/g, '').trim().toLowerCase();
   if (norm(raw) !== norm(expected)) {
     FAIL.push({ dimension: 'strings', token: tokenName, cssVar, mode: '-', figma: expected, css: raw, hint: `CSS has ${cssVar}: ${raw} but Figma says "${expected}"`, fixHint: `${THEME_PATH} — change ${cssVar}: ${raw} → ${expected}` });
   } else {

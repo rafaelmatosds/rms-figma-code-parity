@@ -46,6 +46,8 @@ const figmaTokens = new Set([
   ...Object.keys(snap.color?.light ?? {}).map(t => t.replace(/\/color$/, '')),
   ...Object.keys(snap.color?.dark  ?? {}).map(t => t.replace(/\/color$/, '')),
   ...Object.keys(snap.sizing ?? {}),
+  ...Object.keys(snap.strings ?? {}),
+  ...Object.keys(snap.animation ?? {}),
 ]);
 
 // ── Build forward map: all CSS vars that ARE expected to exist ────────────────
