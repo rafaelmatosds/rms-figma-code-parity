@@ -1040,10 +1040,30 @@ async function bootstrapConfig() {
     console.log(C.bold(C.green('\n  ALL GATES PASS ✅\n')));
   }
   if (planLimitedGates.length) {
-    console.log(C.yellow(`  ⏭  Gate(s) [${planLimitedGates.join(', ')}] were not verified — Figma Variables REST API`));
-    console.log(C.yellow('     requires Enterprise plan. Token refresh was skipped; committed snapshots'));
-    console.log(C.yellow('     were used where available. Upgrade plan or use the Plugin API fallback'));
-    console.log(C.yellow('     to generate a fresh snapshot, then commit and re-run.\n'));
+    const PLAN_NOTES = {
+      1: [
+        'The structure snapshot (figma-structure.snapshot.json) could not be refreshed.',
+        'Figma\'s Variables REST API — used to fetch component structure from the DS file —',
+        'is only available on the Enterprise plan. The last committed snapshot was used instead.',
+        'If DS components changed since then, Gate [3] may pass against outdated data.',
+        'Fix: run the Plugin API fallback in Figma, save the result, commit, and re-run.',
+      ],
+      4: [
+        'The bound-token list (bound-tokens.json) could not be refreshed.',
+        'This file maps every DS frame node to the variables bound to it. Refreshing it',
+        'requires the Variables REST API, which is Enterprise-only. Coverage was checked',
+        'against the last committed snapshot — if DS frames were updated since then,',
+        'newly bound or unbound tokens will not be detected.',
+        'Fix: run the Plugin API fallback in Figma, save the result, commit, and re-run.',
+      ],
+    };
+    console.log(C.yellow('  ⏭  PLAN-LIMITED GATES — what this means:\n'));
+    for (const n of planLimitedGates) {
+      const notes = PLAN_NOTES[n] ?? [`Gate [${n}] could not be fully verified due to Figma plan limitations.`];
+      console.log(C.yellow(`  [${n}] ${gates[n - 1].label}`));
+      for (const line of notes) console.log(C.yellow(`      ${line}`));
+      console.log();
+    }
   }
   console.log('─'.repeat(WIDTH) + '\n');
 
