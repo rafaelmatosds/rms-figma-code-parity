@@ -33,6 +33,21 @@ const gateLabels  = [...auditSrc.matchAll(/addGate\(\s*'([^']+)'/g)].map(m => m[
 // Extract script names from runScriptAsync('script.mjs') calls (in order)
 const scriptNames = [...auditSrc.matchAll(/runScriptAsync\(\s*'([^']+)'/g)].map(m => m[1].trim());
 
+// Extract GATE_PLAIN array from audit.mjs (plain-English gate names for summary table)
+const gatePlainMatch = auditSrc.match(/const GATE_PLAIN\s*=\s*\[([\s\S]*?)\];/);
+const gatePlain = gatePlainMatch
+  ? [...gatePlainMatch[1].matchAll(/'([^']+)'/g)].map(m => m[1])
+  : [];
+
+// Extract GATE_PLAN_RISK object from audit.mjs
+const planRiskMatch = auditSrc.match(/const GATE_PLAN_RISK\s*=\s*\{([\s\S]*?)\};/);
+const gatePlanRisk = {};
+if (planRiskMatch) {
+  for (const m of planRiskMatch[1].matchAll(/(\d+)\s*:\s*'([^']+)'/g)) {
+    gatePlanRisk[Number(m[1])] = m[2];
+  }
+}
+
 // Gates [1] and [5] are computed inline (combined from former inline gates 1+7 and 5+6)
 const INLINE_INDICES = new Set([0, 4]);
 const gates = gateLabels.map((label, i) => {
@@ -53,6 +68,71 @@ function labelKeyword(label) {
     .split(/\s+/)
     .slice(0, 3)                  // first 3 words — specific enough
     .join(' ');
+}
+
+// ── Generate example output block ─────────────────────────────────────────────
+function generateExampleOutput() {
+  const W = 60;
+  const divider = '─'.repeat(W);
+  const lines = [];
+
+  lines.push('```');
+  lines.push(divider);
+  lines.push('  PARITY AUDIT  ·  YYYY-MM-DD');
+  lines.push(divider);
+  lines.push('');
+
+  // Show first two gates as examples (one pass, one fail with detail)
+  lines.push('✅  [1] Figma snapshots are up to date');
+  lines.push('       packages/ui/src/figma-vars.snapshot.json ✓ (updated today)');
+  lines.push('       ✅ All outputs current');
+  lines.push('');
+  lines.push('❌  [2] Token values match Figma (color, sizing, typography)');
+  lines.push('       ✅ PASS  87');
+  lines.push('       ❌ FAIL  2');
+  lines.push('         ❌ [color/Dark] buttonPrimary/background → --buttonPrimary-background');
+  lines.push('              Figma: #ededed   CSS: #d4d4d4');
+  lines.push('');
+  lines.push('  ... (one block per gate)');
+  lines.push('');
+
+  // Gate summary table
+  lines.push(divider);
+  lines.push('  GATE SUMMARY');
+  lines.push(divider);
+  for (let i = 0; i < GATE_COUNT; i++) {
+    const n = i + 1;
+    const plain = gatePlain[i] ?? gateLabels[i] ?? `Gate ${n}`;
+    const hasPlanRisk = !!gatePlanRisk[n];
+    const icon   = hasPlanRisk ? '⏭ ' : '✅';
+    const status = hasPlanRisk ? 'Skipped' : 'Pass';
+    const numPad = `[${n}]`.padEnd(6);
+    const labelPad = plain.length > 48 ? plain.slice(0, 47) + '…' : plain.padEnd(48);
+    lines.push(`  ${icon}  ${numPad}${labelPad}${status}`);
+    if (hasPlanRisk) {
+      lines.push(`         Plan detected: non-Enterprise (Figma Variables REST API not available)`);
+      lines.push(`         ${gatePlanRisk[n]}`);
+    }
+  }
+  lines.push('');
+  lines.push(divider);
+  lines.push('');
+  lines.push('  ALL GATES PASS ✅');
+  lines.push('');
+  lines.push('  ⏭  PLAN-LIMITED GATES — what this means:');
+  lines.push('');
+  for (const [num, risk] of Object.entries(gatePlanRisk)) {
+    const plain = gatePlain[Number(num) - 1] ?? `Gate ${num}`;
+    lines.push(`  [${num}] ${plain}`);
+    lines.push(`      This gate was skipped because the Figma Variables REST API`);
+    lines.push(`      is only available on Enterprise plan.`);
+    lines.push(`      ${risk}`);
+    lines.push('');
+  }
+  lines.push(divider);
+  lines.push('```');
+
+  return lines.join('\n');
 }
 
 console.log(bold(`\nrms-figma-code-parity sync-docs — source of truth: ${GATE_COUNT} gates\n`));
@@ -79,6 +159,22 @@ for (const doc of DOCS) {
   const original = readFileSync(doc.path, 'utf8');
   let patched    = original;
   const changes  = [];
+
+  // ── Patch: example output block (README only, between sentinel comments)
+  if (doc.label === 'README.md') {
+    const START = '<!-- EXAMPLE-OUTPUT-START -->';
+    const END   = '<!-- EXAMPLE-OUTPUT-END -->';
+    const si = patched.indexOf(START);
+    const ei = patched.indexOf(END);
+    if (si !== -1 && ei !== -1 && ei > si) {
+      const fresh = `${START}\n${generateExampleOutput()}\n${END}`;
+      const current = patched.slice(si, ei + END.length);
+      if (current !== fresh) {
+        changes.push('example output block regenerated');
+        patched = patched.slice(0, si) + fresh + patched.slice(ei + END.length);
+      }
+    }
+  }
 
   // ── Patch: "N automated gates"
   patched = patched.replace(/\b(\d+)( automated gates\b)/g, (_, n, post) => {
@@ -113,15 +209,18 @@ for (const doc of DOCS) {
   });
 
   // ── Check: each gate's label keyword appears in the doc.
-  // Always checks by label keyword (first 3 words of the label) so docs can be
-  // written in plain English without exposing internal script filenames.
+  // Checks both the technical label and the plain-English GATE_PLAIN name so docs
+  // can use either form without false positives.
   const missingLabels = gates
-    .map(g => {
-      const anchor = labelKeyword(g.label); // e.g. "Freshness", "Token parity", "CSS hygiene"
-      return { g, anchor };
+    .map((g, i) => {
+      const anchor      = labelKeyword(g.label);
+      const plainAnchor = gatePlain[i] ? labelKeyword(gatePlain[i]) : null;
+      return { g, anchor, plainAnchor };
     })
-    .filter(({ anchor }) => anchor && !original.includes(anchor))
-    .map(({ g, anchor }) => `[${g.n}] ${g.label}  (looking for: "${anchor}")`);
+    .filter(({ anchor, plainAnchor }) =>
+      !original.includes(anchor) && (!plainAnchor || !original.includes(plainAnchor))
+    )
+    .map(({ g, anchor, plainAnchor }) => `[${g.n}] ${g.label}  (looking for: "${anchor}"${plainAnchor ? ` or "${plainAnchor}"` : ''})`);
 
   // ── Report
   if (changes.length === 0 && missingLabels.length === 0) {
