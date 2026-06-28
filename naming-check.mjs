@@ -89,6 +89,32 @@ const rawCss = [...THEME_PATHS, ...PLUGIN_CSS]
 const declared = new Set();
 for (const m of rawCss.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*)\s*:/g)) declared.add('--' + m[1]);
 
+// ── Theme vars (for plugin override detection) ────────────────────────────────
+const themeRaw = THEME_PATHS
+  .filter(p => existsSync(join(ROOT, p))).map(readCssContent)
+  .join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+const themeVarsDeclared = new Set();
+for (const m of themeRaw.matchAll(/--([a-zA-Z][a-zA-Z0-9-]*)\s*:/g)) themeVarsDeclared.add('--' + m[1]);
+
+// ── Plugin CSS override detection ─────────────────────────────────────────────
+// Any plugin :root block that re-declares a theme var will override the DS token
+// value for the plugin's runtime context — this is a hard parity violation.
+// Exempt intentional overrides via ds-config.json → knownPluginOverrides: ["--var"].
+const PLUGIN_OVERRIDE = [];
+const knownPluginOverrides = new Set(cfg.knownPluginOverrides ?? []);
+for (const pluginPath of PLUGIN_CSS.filter(p => existsSync(join(ROOT, p)))) {
+  const pluginSrc = readCssContent(pluginPath).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rootRe = /:root\s*\{([^}]*)\}/g;
+  let rm;
+  while ((rm = rootRe.exec(pluginSrc)) !== null) {
+    for (const vm of rm[1].matchAll(/--([a-zA-Z][a-zA-Z0-9-]*)\s*:/g)) {
+      const v = '--' + vm[1];
+      if (themeVarsDeclared.has(v) && !knownPluginOverrides.has(v))
+        PLUGIN_OVERRIDE.push({ file: pluginPath, var: v });
+    }
+  }
+}
+
 // ── Check ─────────────────────────────────────────────────────────────────────
 const UNKNOWN = [], OK = [];
 
@@ -110,13 +136,35 @@ for (const cssVar of declared) {
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────
-console.log(`\n✅ TRACEABLE  ${OK.length}  (maps back to a Figma token or SYSTEM_VARS)`);
-console.log(`❌ UNINVENTED ${UNKNOWN.length}  (CSS var with no Figma token backing)`);
+console.log(`\n✅ TRACEABLE    ${OK.length}  (maps back to a Figma token or SYSTEM_VARS)`);
+console.log(`❌ UNINVENTED   ${UNKNOWN.length}  (CSS var with no Figma token backing)`);
+if (PLUGIN_OVERRIDE.length) console.log(`❌ OVERRIDES    ${PLUGIN_OVERRIDE.length}  (plugin re-declares a theme var in :root)`);
 
 if (UNKNOWN.length) {
   console.log('\n─── CSS vars with no Figma token (add to DS, delete var, or add to SYSTEM_VARS) ──');
   for (const v of UNKNOWN) console.log(`  ❌ ${v}`);
   console.log('');
+}
+
+if (PLUGIN_OVERRIDE.length) {
+  console.log('\n─── Plugin CSS overrides theme var in :root ─────────────────────────');
+  for (const { file, var: v } of PLUGIN_OVERRIDE)
+    console.log(`  ❌ ${file}: ${v}  (add to ds-config.json → knownPluginOverrides to allow)`);
+  console.log('');
+}
+
+// ── SYSTEM_VARS staleness ─────────────────────────────────────────────────────
+// Entries in SYSTEM_VARS that no longer appear as declarations in any CSS file.
+// These are phantom exemptions — if a var is re-added later, the stale entry would
+// silently exempt it from the naming round-trip check.
+const STALE_SYSTEM_VARS = [...SYSTEM_VARS].filter(v => !declared.has(v));
+if (STALE_SYSTEM_VARS.length) {
+  console.log(`\nℹ️  STALE SYSTEM_VARS (${STALE_SYSTEM_VARS.length}) — in parity-map.mjs but not declared in any CSS file:`);
+  for (const v of STALE_SYSTEM_VARS) console.log(`     ${v}`);
+  console.log('   Remove these entries from SYSTEM_VARS to keep the exemption list accurate.\n');
+}
+
+if (UNKNOWN.length || PLUGIN_OVERRIDE.length) {
   process.exit(1);
 } else {
   console.log('\nAll CSS vars trace back to a Figma token or documented system var. ✓\n');

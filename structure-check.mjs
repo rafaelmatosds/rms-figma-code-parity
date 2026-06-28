@@ -628,6 +628,7 @@ let COMP_PROPS = {};
 try { COMP_PROPS = JSON.parse(readFileSync(join(ROOT, COMP_PROPS_SNAP_PATH), 'utf8')); } catch {}
 
 const CPROP_PASS = [], CPROP_FAIL = [], CPROP_WARN = [];
+const SCAFFOLD = []; // starter CONTRACT entries for undeclared components
 
 // Figma property keys include internal node IDs as suffixes: "Show Label#958:0"
 // Strip them so propertyMap authors use clean names: "Show Label"
@@ -656,12 +657,16 @@ for (const [figmaName, entry] of Object.entries(COMP_PROPS)) {
   const contractKey = figmaNameToContractKey[figmaName];
 
   if (!contractKey) {
-    // Not in CONTRACT at all
     if (!KNOWN_UNIMPLEMENTED.has(figmaName)) {
+      const propList = Object.entries(entry.properties)
+        .filter(([, d]) => d.type === 'BOOLEAN' || d.type === 'VARIANT')
+        .map(([k, d]) => `${normPropName(k)} (${d.type})`)
+        .join(', ');
       CPROP_FAIL.push(
-        `${figmaName}: Figma component has BOOLEAN/VARIANT properties but no CONTRACT entry` +
+        `${figmaName}: no CONTRACT entry — [${propList}]` +
         ` — add propertyMap or list in ds-config.json → knownUnimplementedComponents`
       );
+      SCAFFOLD.push({ name: figmaName, entry });
     }
     continue;
   }
@@ -935,6 +940,29 @@ if (hasCpropChecks) {
     for (const f of CPROP_FAIL) console.log(`  ❌ ${f}`);
     console.log('   Fix: implement a CSS selector/class for this behavior.');
     console.log('   null is only valid for TEXT/INSTANCE_SWAP/SLOT — BOOLEAN/VARIANT must have a selector.');
+  }
+  if (SCAFFOLD.length) {
+    console.log('\n─── Starter CONTRACT scaffolds (copy to structure-contract.mjs) ─────');
+    for (const { name, entry } of SCAFFOLD) {
+      const props = Object.entries(entry.properties)
+        .filter(([, d]) => d.type === 'BOOLEAN' || d.type === 'VARIANT');
+      console.log(`  ${name}: {`);
+      console.log(`    h: null, gapVar: null, paddingVar: { tb: null, lr: null },`);
+      console.log(`    fontSizeVar: null, fontWeightVar: null,`);
+      console.log(`    fillStructure: 'none', innerRadiusVar: null, strokeOnDefault: false,`);
+      console.log(`    propertyMap: {`);
+      for (const [k, d] of props) {
+        const clean = normPropName(k);
+        if (d.type === 'VARIANT') {
+          const opts = (d.variantOptions ?? []).map(v => `${v}: '.${name}'`).join(', ');
+          console.log(`      '${clean}': { ${opts} }, // VARIANT`);
+        } else {
+          console.log(`      '${clean}': '.${name}', // BOOLEAN — add selector for toggled state`);
+        }
+      }
+      console.log(`    },`);
+      console.log(`  },`);
+    }
   }
   if (CPROP_WARN.length) {
     console.log('\n─── Gate [3g] — unmapped Figma component properties ─────────────────');
