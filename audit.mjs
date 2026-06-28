@@ -1015,6 +1015,24 @@ async function bootstrapConfig() {
     console.log();
   });
 
+  // ── Summary table ─────────────────────────────────────────────────────────────
+  const COL1 = 6, COL2 = 50, COL3 = 12;
+  const tRow = (num, label, result) => {
+    const icon = result === 'plan' ? C.yellow('⏭') : result ? C.green('✅') : C.red('❌');
+    const status = result === 'plan' ? C.yellow('Plan limited') : result ? C.green('Pass') : C.red('Fail');
+    const n = `[${num}]`.padEnd(COL1);
+    const l = label.length > COL2 ? label.slice(0, COL2 - 1) + '…' : label.padEnd(COL2);
+    return `  ${icon}  ${n}${l}${status}`;
+  };
+  console.log(C.bold('─'.repeat(WIDTH)));
+  console.log(C.bold('  GATE SUMMARY'));
+  console.log(C.bold('─'.repeat(WIDTH)));
+  gates.forEach((g, i) => {
+    const result = g.planLimited ? 'plan' : g.pass;
+    console.log(tRow(i + 1, g.label, result));
+  });
+  console.log();
+
   console.log('─'.repeat(WIDTH));
   if (anyFail) {
     console.log(C.bold(C.red('\n  AUDIT FAILED — fix all ❌ above before declaring parity\n')));
