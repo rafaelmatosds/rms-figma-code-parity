@@ -23,7 +23,7 @@
 // Exit 0 = all symbols documented, transforms and sizes verified. Exit 1 = failures found.
 
 import { readFileSync, existsSync } from 'fs';
-import { join }                     from 'path';
+import { join, dirname }            from 'path';
 
 const ROOT = process.cwd();
 
@@ -56,12 +56,29 @@ function entryStrokeBased(val) { return typeof val === 'string' ? false : (val.s
 const SYMBOL_BLOCK_RE = /<symbol\s([^>]*)>([\s\S]*?)<\/symbol>/g;
 const ID_RE           = /\bid="([^"]+)"/;
 
+// ── Load figma-icons.snapshot.json (path comparison ground truth) ─────────────
+let iconSnap = {};
+const snapIconsPath = cfg.paths?.snapshotIcons;
+if (snapIconsPath && existsSync(join(ROOT, snapIconsPath))) {
+  try { iconSnap = JSON.parse(readFileSync(join(ROOT, snapIconsPath), 'utf8')); } catch {}
+}
+
+function extractPathDs(body) {
+  const re = /\bd="([^"]+)"/g;
+  const ds = [];
+  let m;
+  while ((m = re.exec(body)) !== null) ds.push(m[1]);
+  return ds;
+}
+
 const documented       = [];
 const undocumented     = [];
 const transformFails   = [];
 const sizeFails        = [];
 const strokeFails      = [];
 const strokeBasedFails = [];
+const pathFails        = [];
+const viewBoxFails     = [];
 
 for (const srcPath of HTML_SOURCES) {
   const text = readFileSync(join(ROOT, srcPath), 'utf8');
@@ -139,6 +156,29 @@ for (const srcPath of HTML_SOURCES) {
       }
     }
 
+    // ── Path comparison against Figma snapshot ──────────────────────────────
+    const snapEntry = iconSnap[id];
+    if (snapEntry) {
+      // Verify viewBox matches Figma export — skip for transformed icons (rotation adjusts bounding box)
+      if (!reqTransform) {
+        const viewBoxMatch = /\bviewBox="([^"]+)"/.exec(attrs);
+        const codeViewBox  = viewBoxMatch ? viewBoxMatch[1] : null;
+        if (codeViewBox && codeViewBox !== snapEntry.viewBox) {
+          viewBoxFails.push({ id, file: srcPath, expected: snapEntry.viewBox, actual: codeViewBox });
+        }
+      }
+      // Verify path d values match Figma export exactly
+      const codePaths = extractPathDs(body);
+      const snapPaths = snapEntry.paths ?? [];
+      if (JSON.stringify([...codePaths].sort()) !== JSON.stringify([...snapPaths].sort())) {
+        pathFails.push({ id, file: srcPath,
+          expectedCount: snapPaths.length, actualCount: codePaths.length,
+          expected: snapPaths[0] ? snapPaths[0].slice(0, 60) + '…' : '(none)',
+          actual:   codePaths[0] ? codePaths[0].slice(0, 60) + '…' : '(none — non-path elements used)',
+        });
+      }
+    }
+
     documented.push({ id, desc, file: srcPath });
   }
 }
@@ -162,6 +202,8 @@ const allFails = [
   ...transformFails.map(r => ({ ...r, kind: 'transform' })),
   ...sizeFails.map(r => ({ ...r, kind: 'size' })),
   ...strokeFails.map(r => ({ ...r, kind: 'stroke' })),
+  ...viewBoxFails.map(r => ({ ...r, kind: 'viewBox' })),
+  ...pathFails.map(r => ({ ...r, kind: 'path' })),
 ];
 
 if (allFails.length === 0) {
@@ -216,6 +258,29 @@ if (strokeFails.length) {
     console.log(`      → Broad CSS rules (e.g. .buttonTertiary svg { stroke: ... }) will inherit stroke into fill-only`);
     console.log(`        paths, making the icon appear thicker in button contexts than in other contexts.`);
     console.log(`        Add stroke="none" to the <path> inside the symbol to prevent inherited stroke.\n`);
+  }
+}
+
+if (viewBoxFails.length) {
+  console.log(`❌ WRONG VIEWBOX  ${viewBoxFails.length}  (DS icons with wrong viewBox — coordinate space mismatch)\n`);
+  for (const r of viewBoxFails) {
+    console.log(`   ❌ "#${r.id}"  in ${r.file}`);
+    console.log(`      Figma export: viewBox="${r.expected}"  —  code has: viewBox="${r.actual}"`);
+    console.log(`      → The symbol viewBox must match the Figma node dimensions exactly.`);
+    console.log(`        Update the <symbol viewBox="..."> attribute.\n`);
+  }
+}
+
+if (pathFails.length) {
+  console.log(`❌ WRONG PATH DATA  ${pathFails.length}  (DS icon paths diverge from Figma export)\n`);
+  for (const r of pathFails) {
+    console.log(`   ❌ "#${r.id}"  in ${r.file}`);
+    console.log(`      Figma has ${r.expectedCount} path(s). Code has ${r.actualCount} path(s).`);
+    console.log(`      Expected (first 60 chars): ${r.expected}`);
+    console.log(`      Actual   (first 60 chars): ${r.actual}`);
+    console.log(`      → DS icons must use the exact SVG exported from Figma via exportAsync({ format: 'SVG' }).`);
+    console.log(`        Never hand-draw stroke paths (<circle>, <line>, <polyline>) for DS fill icons.`);
+    console.log(`        Run the icon export step in Phase 1 and copy the exact <path d="..."> value.\n`);
   }
 }
 
