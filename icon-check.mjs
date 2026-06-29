@@ -33,10 +33,10 @@ try { cfg = JSON.parse(readFileSync(join(ROOT, 'ds-config.json'), 'utf8')); } ca
   console.error('❌ ds-config.json not found at project root.'); process.exit(1);
 }
 
-const HTML_SOURCES = (cfg.paths?.pluginCSS ?? []).filter(f => {
-  const full = join(ROOT, f);
-  return existsSync(full) && f.endsWith('.html');
-});
+const HTML_SOURCES = [
+  ...(cfg.paths?.pluginCSS        ?? []).filter(f => existsSync(join(ROOT, f)) && f.endsWith('.html')),
+  ...(cfg.paths?.sharedIconSources ?? []).filter(f => existsSync(join(ROOT, f))),
+];
 
 // ── Load ICON_SYMBOLS from structure-contract.mjs ─────────────────────────────
 let ALLOWED = {};
