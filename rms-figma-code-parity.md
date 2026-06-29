@@ -591,7 +591,7 @@ All 12 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | [9]  | `exemption-check.mjs` | **Exemption validity** — Tokens marked as "skip this" are cross-checked against the snapshot. Stale exemptions (token renamed or removed) are flagged. |
 | [10] | `mode-completeness-check.mjs` | **Mode completeness** — Every token meant to vary between modes actually does — light vs dark, compact vs comfortable, any DS mode. Nothing frozen at the same value where modes should differ. |
 | [11] | `naming-check.mjs` | **CSS naming round-trip** — Every CSS variable name traces back to a real Figma token. Catches invented variables with no DS counterpart. |
-| [12] | `pseudo-element-check.mjs` `icon-check.mjs` | **Contract coverage** — `::before`/`::after` elements must be declared in the structure contract. SVG `<symbol>` elements must be in `ICON_SYMBOLS`: DS icons with Figma node ID, plugin icons marked `PLUGIN-SPECIFIC`. Also verifies rotation wrapper (`transform`), render size (`size`), and fill-only stroke guard (`strokeNone`). |
+| [12] | `pseudo-element-check.mjs` `icon-check.mjs` | **Contract coverage** — `::before`/`::after` elements must be declared in the structure contract. SVG `<symbol>` elements must be in `ICON_SYMBOLS`: DS icons with Figma node ID, plugin icons marked `PLUGIN-SPECIFIC`. Also verifies rotation wrapper (`transform`), render size (`size`), fill-only stroke guard (`strokeNone`), and stroke-based rendering guard (`strokeBased`). |
 
 **Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 
@@ -1084,25 +1084,29 @@ export const ICON_SYMBOLS = {
   // DS icon — string form (no transform required)
   'icon-close': 'DS ICON — Icon/Close node 123-456; X mark',
 
-  // DS icon — object form with transform + size + strokeNone
-  'icon-fit': { desc: 'DS ICON — Icon/Fit node 149-101965; four outward-pointing arrows', transform: 'rotate(-45 7.081 7.081)', size: 16, strokeNone: true },
+  // DS icon — fill-based with transform + size + strokeNone guard
+  'icon-fit':  { desc: 'DS ICON — Icon/Fit node 149-101965; four outward-pointing arrows', transform: 'rotate(-45 7.081 7.081)', size: 16, strokeNone: true },
+  // DS icon — stroke-based with size + strokeBased guard
+  'icon-info': { desc: 'DS ICON — Icon/Info node 67-46370; stroke circle with "i" mark', size: 12, strokeBased: true },
 
   // Plugin-specific — custom icon with no DS backing
   'icon-type-text': 'PLUGIN-SPECIFIC — Figma "T" text node type indicator; issue list',
 };
 ```
 
-**Object form:** use `{ desc, transform?, size?, strokeNone? }` for DS icons that require additional checks:
+**Object form:** use `{ desc, transform?, size?, strokeNone?, strokeBased? }` for DS icons that require additional checks:
 
 - **`transform`** — when the Figma component wraps the SVG path in a rotation (visible as `-rotate-X` in the Figma component code). The gate verifies a `<g transform="...">` with that exact value is present inside the `<symbol>`. Prevents correct path + wrong orientation.
 - **`size`** — the DS-specified icon container size in pixels (e.g. `16`). The gate finds every `<svg width="N" height="N"><use href="#id">` in HTML files and verifies `N === size`. Catches icons rendered at the wrong pixel dimensions.
-- **`strokeNone: true`** — for fill-only DS icons that appear inside contexts with broad CSS stroke rules (e.g. `.buttonTertiary svg { stroke: var(--buttonTertiary-text) }`). The gate verifies the symbol body contains `stroke="none"` on a shape element. Without this, the CSS-inherited stroke adds unintended visual weight, making the icon appear thicker in button contexts than in other contexts (overlay labels, etc.).
+- **`strokeNone: true`** — for fill-only DS icons that appear inside contexts with broad CSS stroke rules (e.g. `.buttonTertiary svg { stroke: var(--buttonTertiary-text) }`). The gate verifies the symbol body contains `stroke="none"` on a shape element. Without this, the CSS-inherited stroke adds unintended visual weight, making the icon appears thicker in button contexts than in other contexts (overlay labels, etc.).
+- **`strokeBased: true`** — for stroke-only DS icons (circle outlines, line icons). The gate verifies the `<symbol>` tag itself has `fill="none"`. Without this, replacing the stroke icon with a fill-based SVG would pass all size and color checks while looking completely different (hollow circle vs filled circle). Use this for any DS icon whose Figma BOOLEAN_OPERATION or path uses stroke rendering, not fill.
 
 **When the gate fails:**
 - Undocumented symbol → fetch from Figma, add contract entry
 - Missing transform → wrap `<path>` in `<g transform="...">` matching the contract value
 - Wrong render size → update the `<svg width="N" height="N">` wrapping `<use href="#id">` to match the contract `size`
 - Missing stroke guard → add `stroke="none"` to the `<path>` inside the symbol
+- Not stroke-based → add `fill="none"` to the `<symbol ...>` opening tag and use stroke rendering
 
 **Every new implementation edge case must add a gate check** — fix the code AND extend the contract/gate so the same mistake cannot recur silently.
 

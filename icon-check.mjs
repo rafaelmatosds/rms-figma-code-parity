@@ -45,21 +45,23 @@ try {
   if (m.ICON_SYMBOLS && typeof m.ICON_SYMBOLS === 'object') ALLOWED = m.ICON_SYMBOLS;
 } catch { /* optional export */ }
 
-function entryDesc(val)       { return typeof val === 'string' ? val : val.desc; }
-function entryTransform(val)  { return typeof val === 'string' ? null : (val.transform  ?? null); }
-function entrySize(val)       { return typeof val === 'string' ? null : (val.size       ?? null); }
-function entryStrokeNone(val) { return typeof val === 'string' ? false : (val.strokeNone ?? false); }
+function entryDesc(val)        { return typeof val === 'string' ? val : val.desc; }
+function entryTransform(val)   { return typeof val === 'string' ? null  : (val.transform   ?? null); }
+function entrySize(val)        { return typeof val === 'string' ? null  : (val.size        ?? null); }
+function entryStrokeNone(val)  { return typeof val === 'string' ? false : (val.strokeNone  ?? false); }
+function entryStrokeBased(val) { return typeof val === 'string' ? false : (val.strokeBased ?? false); }
 
 // ── Extract <symbol id="...">...</symbol> blocks from HTML files ──────────────
 // Captures the full symbol body so we can check for transform attributes.
 const SYMBOL_BLOCK_RE = /<symbol\s([^>]*)>([\s\S]*?)<\/symbol>/g;
 const ID_RE           = /\bid="([^"]+)"/;
 
-const documented     = [];
-const undocumented   = [];
-const transformFails = [];
-const sizeFails      = [];
-const strokeFails    = [];
+const documented       = [];
+const undocumented     = [];
+const transformFails   = [];
+const sizeFails        = [];
+const strokeFails      = [];
+const strokeBasedFails = [];
 
 for (const srcPath of HTML_SOURCES) {
   const text = readFileSync(join(ROOT, srcPath), 'utf8');
@@ -77,10 +79,21 @@ for (const srcPath of HTML_SOURCES) {
       continue;
     }
 
-    const desc           = entryDesc(val);
-    const reqTransform   = entryTransform(val);
-    const reqSize        = entrySize(val);
-    const reqStrokeNone  = entryStrokeNone(val);
+    const desc            = entryDesc(val);
+    const reqTransform    = entryTransform(val);
+    const reqSize         = entrySize(val);
+    const reqStrokeNone   = entryStrokeNone(val);
+    const reqStrokeBased  = entryStrokeBased(val);
+
+    if (reqStrokeBased) {
+      // Verify the <symbol> tag itself has fill="none" — ensures stroke-based rendering.
+      // Catches a fill-based SVG replacing a stroke DS icon without any size/color gate failing.
+      const hasFillNone = /\bfill="none"/.test(attrs) || /\bfill='none'/.test(attrs);
+      if (!hasFillNone) {
+        strokeBasedFails.push({ id, file: srcPath, desc });
+        continue;
+      }
+    }
 
     if (reqTransform) {
       const hasTransform = body.includes(`transform="${reqTransform}"`) ||
@@ -145,6 +158,7 @@ if (documented.length) {
 
 const allFails = [
   ...undocumented.map(r => ({ ...r, kind: 'undocumented' })),
+  ...strokeBasedFails.map(r => ({ ...r, kind: 'strokeBased' })),
   ...transformFails.map(r => ({ ...r, kind: 'transform' })),
   ...sizeFails.map(r => ({ ...r, kind: 'size' })),
   ...strokeFails.map(r => ({ ...r, kind: 'stroke' })),
@@ -181,6 +195,16 @@ if (sizeFails.length) {
     console.log(`   ❌ "#${r.id}"  in ${r.file}`);
     console.log(`      Contract requires: ${r.reqSize}×${r.reqSize}  —  found: ${r.actual}`);
     console.log(`      → The DS component specifies a ${r.reqSize}px container. Update the <svg width="${r.reqSize}" height="${r.reqSize}"> that wraps <use href="#${r.id}">.\n`);
+  }
+}
+
+if (strokeBasedFails.length) {
+  console.log(`❌ NOT STROKE-BASED  ${strokeBasedFails.length}  (DS stroke icons must have fill="none" on <symbol> tag)\n`);
+  for (const r of strokeBasedFails) {
+    console.log(`   ❌ "#${r.id}"  in ${r.file}`);
+    console.log(`      Contract requires strokeBased: true — <symbol> tag must have fill="none" attribute.`);
+    console.log(`      → The DS icon uses stroke rendering (not fill). A fill-based replacement would have`);
+    console.log(`        wrong visual weight. Add fill="none" to the <symbol ...> opening tag.\n`);
   }
 }
 
