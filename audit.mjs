@@ -1085,7 +1085,7 @@ async function bootstrapConfig() {
   const _g7 = computeGate7();
 
   // Subprocess gates — all launch concurrently
-  const [rParity, rStructure, rBound, rIsolation, rVisual, rState, rExemption, rMode, rNaming, rPseudo, rIcon, rStateBinding, rStateVar] = await Promise.all([
+  const [rParity, rStructure, rBound, rIsolation, rVisual, rState, rExemption, rMode, rNaming, rPseudo, rIcon, rStateBinding, rStateVar, rIconSlot, rComponentSlot, rHtmlStructure] = await Promise.all([
     runScriptAsync('parity-check.mjs', ['--json']),
     runScriptAsync('structure-check.mjs'),
     runScriptAsync('bound-check.mjs'),
@@ -1099,6 +1099,9 @@ async function bootstrapConfig() {
     runScriptAsync('icon-check.mjs'),
     runScriptAsync('state-binding-check.mjs'),
     runScriptAsync('component-selector-check.mjs'),
+    runScriptAsync('icon-slot-check.mjs'),
+    runScriptAsync('component-slot-check.mjs'),
+    runScriptAsync('html-structure-check.mjs'),
   ]);
 
   addGate('Freshness  (snapshots · build output)',
@@ -1125,6 +1128,12 @@ async function bootstrapConfig() {
     parseGeneric(rNaming, /TRACEABLE|UNINVENTED|UNDOCUMENTED/));
   addGate('Contract coverage  (pseudo-elements · SVG symbols)',
     combineGates(parseGeneric(rPseudo, /DOCUMENTED|UNDOCUMENTED/), parseGeneric(rIcon, /DOCUMENTED|UNDOCUMENTED/)));
+  addGate('Icon slot parity  (DS icon in every declared button slot)',
+    parseGeneric(rIconSlot, /✅|❌/));
+  addGate('Component slot parity  (DS component class in every declared slot)',
+    parseGeneric(rComponentSlot, /✅|❌/));
+  addGate('HTML structure snapshot  (ids · component classes · icon refs)',
+    parseGeneric(rHtmlStructure, /✅|❌/));
 
   // ── Final report ──────────────────────────────────────────────────────────────
   console.log('\n' + C.bold('─'.repeat(WIDTH)));
@@ -1155,6 +1164,9 @@ async function bootstrapConfig() {
     'Every token that changes between modes is handled in CSS',
     'Every CSS variable maps back to a real Figma token',
     'Pseudo-elements and SVG symbols are documented in the contract',
+    'Every declared icon slot uses the correct DS icon symbol',
+    'Every declared component slot uses the correct DS component class',
+    'HTML structure (ids, component classes, icon refs) matches the stored snapshot',
   ];
   const GATE_PLAN_RISK = {
     1: 'Risk: if DS component structure changed since the last committed snapshot, Gate [3] may pass against outdated data and miss new or renamed tokens. Fix: run /rms-figma-code-parity — Phase 1 Step 1c refreshes this via Plugin API on any plan.',

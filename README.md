@@ -106,6 +106,9 @@ You always audit against a fresh snapshot. There's no way to accidentally check 
   ✅  [10]  Every token that changes between modes is handl…Pass
   ✅  [11]  Every CSS variable maps back to a real Figma to…Pass
   ✅  [12]  Pseudo-elements and SVG symbols are documented …Pass
+  ✅  [13]  Every declared icon slot uses the correct DS ic…Pass
+  ✅  [14]  Every declared component slot uses the correct …Pass
+  ✅  [15]  HTML structure (ids, component classes, icon re…Pass
 
 ────────────────────────────────────────────────────────────
 
@@ -131,9 +134,9 @@ You always audit against a fresh snapshot. There's no way to accidentally check 
 
 ```
 ─── Parity Trend ───────────────────────────────────────────
-  ✅  2026-06-15  12/12 [████████████]
-  ❌  2026-06-16  11/12 [███████████░]
-  ✅  2026-06-17  12/12 [████████████]
+  ✅  2026-06-15  15/15 [███████████████]
+  ❌  2026-06-16  11/12 [██████████████░]
+  ✅  2026-06-17  15/15 [███████████████]
 ────────────────────────────────────────────────────────────
 ```
 

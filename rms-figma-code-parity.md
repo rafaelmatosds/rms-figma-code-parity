@@ -576,7 +576,7 @@ Save the returned JSON as `bound-tokens.json` at project root and commit it. Run
 node scripts/audit.mjs
 ```
 
-All 12 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
+All 15 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 
 | Gate | Script | What it checks |
 |---|---|---|
@@ -592,6 +592,9 @@ All 12 gates must pass. Gate [1] is always ✅ since Phase 1 just ran.
 | [10] | `mode-completeness-check.mjs` | **Mode completeness** — Every token meant to vary between modes actually does — light vs dark, compact vs comfortable, any DS mode. Nothing frozen at the same value where modes should differ. |
 | [11] | `naming-check.mjs` | **CSS naming round-trip** — Every CSS variable name traces back to a real Figma token. Catches invented variables with no DS counterpart. |
 | [12] | `pseudo-element-check.mjs` `icon-check.mjs` | **Contract coverage** — `::before`/`::after` elements must be declared in the structure contract. SVG `<symbol>` elements must be in `ICON_SYMBOLS`: DS icons with Figma node ID, plugin icons marked `PLUGIN-SPECIFIC`. Also verifies rotation wrapper (`transform`), render size (`size`), fill-only stroke guard (`strokeNone`), and stroke-based rendering guard (`strokeBased`). |
+| [13] | `icon-slot-check.mjs` | **Icon slot parity** — Every declared button/UI slot in `ICON_USAGES` (structure-contract.mjs) uses the exact DS icon specified. Catches wrong icons committed to a slot (e.g. `icon-download` used where `icon-update` is specified). |
+| [14] | `component-slot-check.mjs` | **Component slot parity** — Every declared UI slot in `COMPONENT_USAGES` (structure-contract.mjs) uses the correct DS component class (`buttonTertiary`, `buttonPrimary`, etc.). Catches wrong component types in each role. |
+| [15] | `html-structure-check.mjs` | **HTML structure snapshot** — Parses each plugin's source HTML statically and extracts a structural fingerprint (element IDs, DS component classes on interactive elements, icon `<use href>` refs with context). Diffs against a stored snapshot. Any undeclared structural change is flagged as ❌. Accept: `node scripts/html-structure-check.mjs --accept`. |
 
 **Gate [2] fix mode:** run `node scripts/parity-check.mjs --fix` to auto-apply sizing/typography value fixes. Color divergences require manual review.
 
