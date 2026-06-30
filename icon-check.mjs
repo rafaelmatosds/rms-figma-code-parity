@@ -132,30 +132,6 @@ for (const srcPath of HTML_SOURCES) {
       }
     }
 
-    if (reqSize !== null) {
-      // Find every <use href="#id"> (or xlink:href) in the file, then check
-      // the nearest enclosing <svg> opening tag for matching width/height.
-      const USE_RE = new RegExp(`<use\\s[^>]*(?:href|xlink:href)=["']#${id}["'][^>]*>`, 'g');
-      let um;
-      USE_RE.lastIndex = 0;
-      while ((um = USE_RE.exec(text)) !== null) {
-        // Walk backwards from match position to find the most recent <svg ...> opening tag
-        const before    = text.slice(0, um.index);
-        const svgTagIdx = before.lastIndexOf('<svg');
-        if (svgTagIdx === -1) continue;
-        // Extract the full opening tag (up to the first >)
-        const svgTagEnd = text.indexOf('>', svgTagIdx);
-        const svgTag    = text.slice(svgTagIdx, svgTagEnd + 1);
-        const wMatch    = /\bwidth="(\d+(?:\.\d+)?)"/.exec(svgTag);
-        const hMatch    = /\bheight="(\d+(?:\.\d+)?)"/.exec(svgTag);
-        const w = wMatch ? parseFloat(wMatch[1]) : null;
-        const h = hMatch ? parseFloat(hMatch[1]) : null;
-        if (w !== reqSize || h !== reqSize) {
-          sizeFails.push({ id, reqSize, actual: `${w}×${h}`, file: srcPath, desc });
-        }
-      }
-    }
-
     // ── Path comparison against Figma snapshot ──────────────────────────────
     const snapEntry = iconSnap[id];
     if (snapEntry) {
@@ -180,6 +156,55 @@ for (const srcPath of HTML_SOURCES) {
     }
 
     documented.push({ id, desc, file: srcPath });
+  }
+}
+
+// ── Cross-file render-size check ─────────────────────────────────────────────
+// Symbols are often defined in a shared file (e.g. ui-shared.js) while their
+// <use href="#id"> elements live in plugin HTML files. The per-symbol loop above
+// only scans within each file, so cross-file cases are missed. This pass builds
+// a size map from ICON_SYMBOLS and scans every HTML source for <use> elements,
+// comparing the enclosing <svg width="N" height="N"> against the declared size.
+{
+  const sizeRequired = new Map(); // id → { reqSize, desc }
+  for (const [id, val] of Object.entries(ALLOWED)) {
+    const reqSize = entrySize(val);
+    if (reqSize !== null) sizeRequired.set(id, { reqSize, desc: entryDesc(val) });
+  }
+
+  const iconSizeExceptions = cfg.knownIconSizeExceptions ?? [];
+
+  function checkUseSizes(srcPath, text) {
+    for (const [id, { reqSize, desc }] of sizeRequired) {
+      const USE_RE = new RegExp(`<use\\s[^>]*(?:href|xlink:href)=["']#${id}["'][^>]*>`, 'g');
+      let um;
+      USE_RE.lastIndex = 0;
+      while ((um = USE_RE.exec(text)) !== null) {
+        const before    = text.slice(0, um.index);
+        const svgTagIdx = before.lastIndexOf('<svg');
+        if (svgTagIdx === -1) continue;
+        const svgTagEnd = text.indexOf('>', svgTagIdx);
+        const svgTag    = text.slice(svgTagIdx, svgTagEnd + 1);
+        const wMatch    = /\bwidth="(\d+(?:\.\d+)?)"/.exec(svgTag);
+        const hMatch    = /\bheight="(\d+(?:\.\d+)?)"/.exec(svgTag);
+        const w = wMatch ? parseFloat(wMatch[1]) : null;
+        const h = hMatch ? parseFloat(hMatch[1]) : null;
+        if (w !== reqSize || h !== reqSize) {
+          const isExempt = iconSizeExceptions.some(
+            e => e.id === id && e.file === srcPath && e.size === w && e.size === h
+          );
+          if (isExempt) continue;
+          const key = `${id}|${srcPath}|${w}×${h}`;
+          if (!sizeFails.some(f => `${f.id}|${f.file}|${f.actual}` === key)) {
+            sizeFails.push({ id, reqSize, actual: `${w}×${h}`, file: srcPath, desc });
+          }
+        }
+      }
+    }
+  }
+
+  for (const srcPath of HTML_SOURCES) {
+    checkUseSizes(srcPath, readFileSync(join(ROOT, srcPath), 'utf8'));
   }
 }
 
