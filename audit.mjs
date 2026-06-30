@@ -885,11 +885,12 @@ async function bootstrapConfig() {
     const lines  = [];
     let warn     = false;
 
+    let varsPlanLimited = false;
     if (vars === null) {
       lines.push(C.red(`${SNAP_VARS} missing — run /rms-parity Phase 1`)); warn = true;
     } else if (vars > 24) {
       lines.push(C.yellow(`⚠️  ${SNAP_VARS} is ${vars}h old${_figmaApiLimited ? ' (Variables REST API not available on this plan)' : ''}`));
-      warn = true;
+      if (_figmaApiLimited) { varsPlanLimited = true; } else { warn = true; }
     } else {
       lines.push(`${SNAP_VARS} ✓ (updated today)`);
     }
@@ -909,7 +910,8 @@ async function bootstrapConfig() {
       lines.push(`${SNAP_STRUCT} ✓ (updated today)`);
     }
 
-    return { pass: !warn && !structPlanLimited, planLimited: !warn && structPlanLimited, lines };
+    const anyPlanLimited = varsPlanLimited || structPlanLimited;
+    return { pass: !warn && !anyPlanLimited, planLimited: !warn && anyPlanLimited, lines };
   }
 
   function computeGate5() {
