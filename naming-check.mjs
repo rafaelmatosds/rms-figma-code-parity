@@ -167,7 +167,7 @@ if (STALE_SYSTEM_VARS.length) {
 // ── CSS class selector → CONTRACT cross-reference ─────────────────────────────
 // Flags camelCase top-level CSS class selectors (e.g. .buttonPrimary, .sidePanel)
 // that have no CONTRACT entry and no knownPluginSelectors exemption.
-// INFO only — never causes exit(1). Helps catch undocumented plugin-specific components.
+// FAIL — undocumented selectors indicate a plugin-specific component that should not exist.
 const knownPluginSelectors = new Set(cfg.knownPluginSelectors ?? []);
 let CONTRACT_KEYS = new Set();
 try {
@@ -175,6 +175,7 @@ try {
   if (contract.CONTRACT) CONTRACT_KEYS = new Set(Object.keys(contract.CONTRACT));
 } catch { /* structure-contract.mjs is optional */ }
 
+let selectorFails = false;
 if (CONTRACT_KEYS.size) {
   const seen = new Set();
   for (const m of rawCss.matchAll(/(?:^|[}\n])\s*\.([a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*)\s*[{,]/gm)) {
@@ -182,12 +183,17 @@ if (CONTRACT_KEYS.size) {
     if (!CONTRACT_KEYS.has(cls) && !knownPluginSelectors.has(cls)) seen.add(cls);
   }
   if (seen.size) {
-    const list = [...seen].map(c => `.${c}`).join(', ');
-    console.log(`\nℹ️  UNDOCUMENTED SELECTORS (${seen.size}) — ${list} — add to CONTRACT or ds-config.json → knownPluginSelectors`);
+    selectorFails = true;
+    console.log(`\n❌ UNDOCUMENTED SELECTORS (${seen.size}) — CSS component classes with no DS backing:\n`);
+    for (const cls of [...seen].sort()) {
+      console.log(`   .${cls}`);
+      console.log(`     → Not in CONTRACT and not in ds-config.json → knownPluginSelectors.`);
+      console.log(`     → Either add to CONTRACT (if it IS a DS component) or remove from CSS.\n`);
+    }
   }
 }
 
-if (UNKNOWN.length || PLUGIN_OVERRIDE.length) {
+if (UNKNOWN.length || PLUGIN_OVERRIDE.length || selectorFails) {
   process.exit(1);
 } else {
   console.log('\nAll CSS vars trace back to a Figma token or documented system var. ✓\n');
