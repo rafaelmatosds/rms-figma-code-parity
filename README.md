@@ -40,33 +40,54 @@ Every run has two phases:
 | Phase | What happens |
 |---|---|
 | **1 — Figma refresh** | Pulls the latest values from Figma (colors, sizes, fonts, component structure), shows you what changed since last time, and updates the local snapshot files. |
-| **2 — Code audit** | Runs 17 automated checks against your CSS and reports everything that doesn't match. |
+| **2 — Code audit** | Runs 15 automated checks against your CSS and reports everything that doesn't match. |
 
 You always audit against a fresh snapshot. There's no way to accidentally check against yesterday's design.
 
 ---
 
-## The 17 checks
+## The 15 checks
 
+Gates are grouped by theme so failures point you to the right layer immediately.
+
+**Freshness** — is the data you're checking against fresh?
 | # | What it checks |
 |---|---|
 | 1 | **Freshness** — Are the snapshot files from today? Are your compiled plugin files newer than their sources? |
-| 2 | **Token values** — Do every color, size, and font in your CSS match what Figma says they should be? Checks all color modes (light, dark, etc.). |
-| 3 | **Component structure** — Is each component the right height? Are its spacing, font, and corner radius wired to the right tokens — not hardcoded? |
+| 2 | **Visual regression** — Does the live Figma frame still look the same as the last accepted screenshot? |
+
+**Tokens** — do CSS values match Figma's design decisions?
+| # | What it checks |
+|---|---|
+| 3 | **Token parity** — Do every color, size, and font in your CSS match what Figma says they should be? Checks all color modes (light, dark, etc.). |
 | 4 | **Bound-token coverage** — Is there anything in the Figma frames that has no CSS variable yet? |
-| 5 | **CSS hygiene** — Are there CSS variables nobody's using? Are there raw values (colors, sizes) written directly into CSS rules instead of using a token variable? Also catches hand-drawn icons: a `data:image/svg+xml` background-image with a literal or `%23`-encoded color bypasses the DS icon sprite entirely and is invisible to icon-slot checks, since it's a CSS string, not markup. |
-| 6 | **Sub-component isolation** — When one DS component is nested inside another, are their styles leaking into each other? |
-| 7 | **Visual regression** — Does the live Figma frame still look the same as the last accepted screenshot? |
-| 8 | **State coverage** — Does every interactive state from Figma (hover, disabled, selected…) have a CSS rule? Are the right token variables used inside those rules? |
-| 9 | **Exemption validity** — Are any "skip this token" exceptions in your config now pointing to tokens that no longer exist? |
-| 10 | **Mode completeness** — Do all tokens that are supposed to change between modes (light/dark, compact/comfortable) actually resolve to different values in each mode? |
-| 11 | **CSS naming round-trip** — Does every CSS variable name trace back to a real token in the Figma file? Catches variables someone invented that have no design backing. |
-| 12 | **Contract coverage** — Are all `::before`/`::after` pseudo-elements and SVG icons documented in the structure contract? DS icons must link back to a Figma node ID. |
-| 13 | **Icon slot parity** — Does every declared button slot use the exact DS icon the Figma spec calls for? |
-| 14 | **Component slot parity** — Does every declared slot use the exact DS component class the Figma spec calls for? |
-| 15 | **HTML structure snapshot** — Have a slot's ids, component classes, or icon refs changed since the last accepted baseline? |
-| 16 | **Transition contract** — Does every DS component's CSS transition match the documented duration and easing value? Catches duration/easing drift before Figma EASING/TIMING tokens are available. |
-| 17 | **Icon snapshot freshness** — Do the committed icon path data in `figma-icons.snapshot.json` still match what Figma exports today? Catches when an icon's SVG path changes in Figma before the code is updated. Requires `FIGMA_TOKEN`; skipped if not set. |
+| 5 | **Mode completeness** — Do all tokens that are supposed to change between modes (light/dark, compact/comfortable) actually resolve to different values in each mode? |
+| 6 | **Exemption validity** — Are any "skip this token" exceptions in your config now pointing to tokens that no longer exist? |
+| 7 | **CSS naming round-trip** — Does every CSS variable name trace back to a real token in the Figma file? Catches variables someone invented that have no design backing. |
+
+**CSS quality** — is the stylesheet itself clean?
+| # | What it checks |
+|---|---|
+| 8 | **CSS hygiene** — Are there CSS variables nobody's using? Are there raw values (colors, sizes) written directly into CSS rules instead of using a token variable? Also catches hand-drawn icons embedded as CSS strings (invisible to slot checks). |
+| 9 | **Sub-component isolation** — When one DS component is nested inside another, are their styles leaking into each other? |
+
+**Structure** — do components match the Figma component spec?
+| # | What it checks |
+|---|---|
+| 10 | **Component structure** — Is each component the right height? Are its spacing, font, and corner radius wired to the right tokens — not hardcoded? |
+| 11 | **State coverage** — Does every interactive state from Figma (hover, disabled, selected…) have a CSS rule? Are the right token variables used inside those rules? |
+
+**Markup** — is the HTML the right shape?
+| # | What it checks |
+|---|---|
+| 12 | **HTML structure snapshot** — Have any ids, component classes, or icon refs changed since the last accepted baseline? |
+| 13 | **Slot parity** — Does every declared button slot use the exact DS icon and component class the Figma spec calls for? (Two-phase: declared slots + exhaustiveness scan for undeclared ones.) |
+| 14 | **Icon contract** — Are all SVG icons documented (with Figma node IDs), using the exact path data from Figma, and still matching the live Figma export? Three-part check: symbol docs → path verification → live freshness. |
+
+**Animation** — do motion values match?
+| # | What it checks |
+|---|---|
+| 15 | **Transition contract** — Does every DS component's CSS transition match the documented duration and easing value? Catches duration/easing drift before Figma EASING/TIMING tokens are available. |
 
 ---
 
@@ -84,7 +105,7 @@ You always audit against a fresh snapshot. There's no way to accidentally check 
        packages/ui/src/figma-vars.snapshot.json ✓ (updated today)
        ✅ All outputs current
 
-❌  [2] Token values match Figma (color · sizing · typography · breakpoints · strings · animation)
+❌  [2] Visual output matches the stored Figma frame screenshot
        ✅ PASS  87
        ❌ FAIL  2
          ❌ [color/Dark] buttonPrimary/background → --buttonPrimary-background
@@ -95,27 +116,25 @@ You always audit against a fresh snapshot. There's no way to accidentally check 
 ────────────────────────────────────────────────────────────
   GATE SUMMARY
 ────────────────────────────────────────────────────────────
-  ⏭   [1]   Figma snapshots are up to date                  Skipped
+  ⏭   [1]   Figma snapshots are up to date and build output…Skipped
          Plan detected: non-Enterprise (Figma Variables REST API not available)
-         Risk: if DS component structure changed since the last committed snapshot, Gate [3] may pass against outdated data and miss new or renamed tokens. Fix: run /rms-figma-code-parity — Phase 1 Step 1c refreshes this via Plugin API on any plan.
-  ✅  [2]   Token values match Figma (color · sizing · typo…Pass
-  ✅  [3]   Component structure matches Figma (layout, spac…Pass
+         Risk: if DS component structure changed since the last committed snapshot, Gate [10] may pass against outdated data and miss new or renamed tokens. Fix: run /rms-figma-code-parity — Phase 1 Step 1c refreshes this via Plugin API on any plan.
+  ✅  [2]   Visual output matches the stored Figma frame sc…Pass
+  ✅  [3]   Token values match Figma (color · sizing · typo…Pass
   ⏭   [4]   Every DS token bound in Figma is implemented in…Skipped
          Plan detected: non-Enterprise (Figma Variables REST API not available)
          Risk: if DS frames were updated since the last committed snapshot, newly bound or removed token bindings will not be detected. Fix: run /rms-figma-code-parity — Phase 1 Step 1d refreshes this via Plugin API on any plan.
-  ✅  [5]   No unused CSS variables or hardcoded values     Pass
-  ✅  [6]   Child components are not overridden by parent C…Pass
-  ✅  [7]   Visual output matches stored Figma frame screen…Pass
-  ✅  [8]   All component states are covered, wired, and in…Pass
-  ✅  [9]   All documented exceptions are still valid       Pass
-  ✅  [10]  Every token that changes between modes is handl…Pass
-  ✅  [11]  Every CSS variable maps back to a real Figma to…Pass
-  ✅  [12]  Pseudo-elements and SVG symbols are documented …Pass
-  ✅  [13]  Every declared icon slot uses the correct DS ic…Pass
-  ✅  [14]  Every declared component slot uses the correct …Pass
-  ✅  [15]  HTML structure (ids, component classes, icon re…Pass
-  ✅  [16]  All CSS transitions match the documented durati…Pass
-  ✅  [17]  DS icon SVG paths in snapshot match live Figma …Pass
+  ✅  [5]   Every token that changes between modes is handl…Pass
+  ✅  [6]   All documented exceptions are still valid       Pass
+  ✅  [7]   Every CSS variable maps back to a real Figma to…Pass
+  ✅  [8]   No unused CSS variables or hardcoded values     Pass
+  ✅  [9]   Child components are not overridden by parent C…Pass
+  ✅  [10]  Component structure matches Figma (height, spac…Pass
+  ✅  [11]  All component states are covered, wired, and in…Pass
+  ✅  [12]  HTML structure (ids, component classes, icon re…Pass
+  ✅  [13]  Every declared slot uses the correct DS icon an…Pass
+  ✅  [14]  All DS icon symbols are documented, paths verif…Pass
+  ✅  [15]  All CSS transitions match the documented durati…Pass
 
 ────────────────────────────────────────────────────────────
 
@@ -123,10 +142,10 @@ You always audit against a fresh snapshot. There's no way to accidentally check 
 
   ⏭  PLAN-LIMITED GATES — what this means:
 
-  [1] Figma snapshots are up to date
+  [1] Figma snapshots are up to date and build outputs are current
       This gate was skipped because the Figma Variables REST API
       is only available on Enterprise plan.
-      Risk: if DS component structure changed since the last committed snapshot, Gate [3] may pass against outdated data and miss new or renamed tokens. Fix: run /rms-figma-code-parity — Phase 1 Step 1c refreshes this via Plugin API on any plan.
+      Risk: if DS component structure changed since the last committed snapshot, Gate [10] may pass against outdated data and miss new or renamed tokens. Fix: run /rms-figma-code-parity — Phase 1 Step 1c refreshes this via Plugin API on any plan.
 
   [4] Every DS token bound in Figma is implemented in CSS
       This gate was skipped because the Figma Variables REST API
@@ -141,9 +160,9 @@ You always audit against a fresh snapshot. There's no way to accidentally check 
 
 ```
 ─── Parity Trend ───────────────────────────────────────────
-  ✅  2026-06-15  17/17 [█████████████████]
-  ❌  2026-06-16  11/12 [████████████████░]
-  ✅  2026-06-17  17/17 [█████████████████]
+  ✅  2026-06-15  15/15 [███████████████]
+  ❌  2026-06-16  11/12 [██████████████░]
+  ✅  2026-06-17  15/15 [███████████████]
 ────────────────────────────────────────────────────────────
 ```
 

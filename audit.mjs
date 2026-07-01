@@ -1157,40 +1157,47 @@ async function bootstrapConfig() {
     runScriptAsync('icon-freshness-check.mjs'),
   ]);
 
+  // ── Freshness ─────────────────────────────────────────────────────────────────
   addGate('Freshness  (snapshots · build output)',
     combineGates(_g1, _g7));
+  addGate('Visual regression  (live Figma frame ↔ stored reference)',
+    parseGate9(rVisual));
+
+  // ── Token integrity ───────────────────────────────────────────────────────────
   addGate('Token parity  (color · sizing · typography · breakpoints · strings · animation)',
     parseGate2(rParity));
-  addGate('Structure  (snapshot · CSS height · base-rule vars)',
-    parseGate3(rStructure));
   addGate('Bound-token coverage  (DS frames → CSS vars)',
     parseGate4(rBound));
+  addGate('Mode completeness  (all mode-variant tokens adapt across every configured mode)',
+    parseGeneric(rMode, /ADAPTS|STATIC|SKIPPED/));
+  addGate('Exemption validity  (EXPLICIT · SKIP_TOKENS · COVERED not stale)',
+    parseGeneric(rExemption, /VALID|STALE|BROKEN/));
+  addGate('CSS naming round-trip  (every var traceable to a Figma token)',
+    parseGeneric(rNaming, /TRACEABLE|UNINVENTED|UNDOCUMENTED/));
+
+  // ── CSS quality ───────────────────────────────────────────────────────────────
   addGate('CSS hygiene  (unused vars · hardcoded values)',
     combineGates(_g5, _g6));
   addGate('Sub-component isolation  (no parent rule overrides sub-component styles)',
     parseGate8(rIsolation));
-  addGate('Visual regression  (frames match stored references)',
-    parseGate9(rVisual));
+
+  // ── Structure ─────────────────────────────────────────────────────────────────
+  addGate('Component structure  (height · spacing · base-rule var bindings)',
+    parseGate3(rStructure));
   addGate('State coverage  (completeness · selector binding · var placement)',
     combineGates(parseGeneric(rState, /COVERED|UNCOVERED/), parseGeneric(rStateBinding, /COVERED|MISSING/), parseGeneric(rStateVar, /CORRECT|MISMATCH/)));
-  addGate('Exemption validity  (EXPLICIT · SKIP_TOKENS · COVERED not stale)',
-    parseGeneric(rExemption, /VALID|STALE|BROKEN/));
-  addGate('Mode completeness  (all mode-variant tokens adapt across every configured mode)',
-    parseGeneric(rMode, /ADAPTS|STATIC|SKIPPED/));
-  addGate('CSS naming round-trip  (every var traceable to a Figma token)',
-    parseGeneric(rNaming, /TRACEABLE|UNINVENTED|UNDOCUMENTED/));
-  addGate('Contract coverage  (pseudo-elements · SVG symbols)',
-    combineGates(parseGeneric(rPseudo, /DOCUMENTED|UNDOCUMENTED/), parseGeneric(rIcon, /DOCUMENTED|UNDOCUMENTED/)));
-  addGate('Icon slot parity  (DS icon in every declared button slot)',
-    parseGeneric(rIconSlot, /✅|❌/));
-  addGate('Component slot parity  (DS component class in every declared slot)',
-    parseGeneric(rComponentSlot, /✅|❌/));
+
+  // ── Markup ────────────────────────────────────────────────────────────────────
   addGate('HTML structure snapshot  (ids · component classes · icon refs)',
     parseGeneric(rHtmlStructure, /✅|❌/));
+  addGate('Slot parity  (icon slots · component slots)',
+    combineGates(parseGeneric(rIconSlot, /✅|❌/), parseGeneric(rComponentSlot, /✅|❌/)));
+  addGate('Icon contract  (symbol docs · path data · live Figma freshness)',
+    combineGates(parseGeneric(rPseudo, /DOCUMENTED|UNDOCUMENTED/), parseGeneric(rIcon, /DOCUMENTED|UNDOCUMENTED/), parseGeneric(rIconFreshness, /MATCH|CHANGED/)));
+
+  // ── Animation ─────────────────────────────────────────────────────────────────
   addGate('Transition contract  (duration · easing · property per DS selector)',
     parseGeneric(rTransition, /✅|❌/));
-  addGate('Icon snapshot freshness  (DS icon paths match live Figma export)',
-    parseGeneric(rIconFreshness, /MATCH|CHANGED/));
 
   // ── Final report ──────────────────────────────────────────────────────────────
   console.log('\n' + C.bold('─'.repeat(WIDTH)));
@@ -1209,26 +1216,30 @@ async function bootstrapConfig() {
 
   // ── Summary table ─────────────────────────────────────────────────────────────
   const GATE_PLAIN = [
-    'Figma snapshots are up to date',
+    // Freshness
+    'Figma snapshots are up to date and build outputs are current',
+    'Visual output matches the stored Figma frame screenshot',
+    // Token integrity
     'Token values match Figma (color · sizing · typography · breakpoints · strings · animation)',
-    'Component structure matches Figma (layout, spacing, bindings)',
     'Every DS token bound in Figma is implemented in CSS',
+    'Every token that changes between modes is handled in CSS',
+    'All documented exceptions are still valid',
+    'Every CSS variable maps back to a real Figma token',
+    // CSS quality
     'No unused CSS variables or hardcoded values',
     'Child components are not overridden by parent CSS rules',
-    'Visual output matches stored Figma frame screenshots',
+    // Structure
+    'Component structure matches Figma (height, spacing, base-rule var bindings)',
     'All component states are covered, wired, and in the right selector',
-    'All documented exceptions are still valid',
-    'Every token that changes between modes is handled in CSS',
-    'Every CSS variable maps back to a real Figma token',
-    'Pseudo-elements and SVG symbols are documented in the contract',
-    'Every declared icon slot uses the correct DS icon symbol',
-    'Every declared component slot uses the correct DS component class',
+    // Markup
     'HTML structure (ids, component classes, icon refs) matches the stored snapshot',
+    'Every declared slot uses the correct DS icon and component class',
+    'All DS icon symbols are documented, paths verified, and fresh from Figma',
+    // Animation
     'All CSS transitions match the documented duration and easing contract',
-    'DS icon SVG paths in snapshot match live Figma export',
   ];
   const GATE_PLAN_RISK = {
-    1: 'Risk: if DS component structure changed since the last committed snapshot, Gate [3] may pass against outdated data and miss new or renamed tokens. Fix: run /rms-figma-code-parity — Phase 1 Step 1c refreshes this via Plugin API on any plan.',
+    1: 'Risk: if DS component structure changed since the last committed snapshot, Gate [10] may pass against outdated data and miss new or renamed tokens. Fix: run /rms-figma-code-parity — Phase 1 Step 1c refreshes this via Plugin API on any plan.',
     4: 'Risk: if DS frames were updated since the last committed snapshot, newly bound or removed token bindings will not be detected. Fix: run /rms-figma-code-parity — Phase 1 Step 1d refreshes this via Plugin API on any plan.',
   };
   const COL1 = 6, COL2 = 52;
